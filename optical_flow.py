@@ -5,7 +5,13 @@ from utils import cvshow
 
 #based on https://opencv-python-tutroals.readthedocs.io/en/latest/py_tutorials/py_video/py_lucas_kanade/py_lucas_kanade.html
 
-def optical_flow(imgA, imgB):
+def farneback_of(imgA, imgB):
+    """
+    uses the OpenCV implementation of the Farneback algorithm for calculating optical flow
+    input: two images that the optical flow should be calculated on, flow is calculated from A to B
+    output: a numpy array of flow vectors of the same width and height as the input images
+    TODO: at the moment, also returns the visualization of the flow
+    """
     if (imgA is None or imgB is None):
         raise Exception("Image(s) not loaded correctly. Aborting")
 
@@ -19,7 +25,6 @@ def optical_flow(imgA, imgB):
         imgA = (imgA * 255).astype(np.uint8)
     if imgB.dtype is (np.dtype('float64') or np.dtype('float32')):
         imgB = (imgB * 255).astype(np.uint8)
-
 
     #check whether greyscale, if not, convert
     if (len(imgA.shape) > 2):
@@ -50,17 +55,10 @@ def optical_flow(imgA, imgB):
     mag, ang = cv2.cartToPolar(flow[...,0], flow[...,1])
     hsv[...,0] = ang*180/np.pi/2
     hsv[...,2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-    rgb = cv2.cvtColor(hsv.astype(np.float32), cv2.COLOR_HSV2BGR)
+    bgr = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-#    img = rgb
-#    img = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_BGR2RGB)
-#    if(np.amax(img) > 1):
-#        out = img
-#    else:
-#        out = img*255
-##    cv2.imwrite("../../data/out/recover/flow_pyr" + str(pyr) + "l" + str(l) + "w" + str(w) + "i" + str(i) + "p" + str(p) + ".jpg", out)
-#    cv2.imwrite("../../data/out/recover/flow_test.jpg", out)
+#    cv2.imwrite("../../data/out/recover/flow_pyr" + str(pyr) + "l" + str(l) + "w" + str(w) + "i" + str(i) + "p" + str(p) + ".jpg", bgr)
+#    cv2.imwrite("../../data/out/recover/flow_test.jpg", bgr)
 
-    #should be 29px for the 1-1.5 reduced panos
-    return flow, rgb
+    return flow, bgr
 
