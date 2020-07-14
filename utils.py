@@ -1,10 +1,14 @@
 import cv2
 import numpy as np
+import json
+from skimage import io
 
-from scipy.ndimage.interpolation import map_coordinates
+def print_type(array):
+    print("min: " , np.amin(array), ", max: ", np.amax(array))
+    print("shape: ", array.shape, ", type: ", array.dtype)
 
 def cvshow(img, filename=None):
-    if(np.amax(img) > 1):
+    if(np.floor(np.amax(img)) > 1):
         img = img.astype(np.uint8)
 
     if img.dtype is (np.dtype('float64') or np.dtype('float32')):
@@ -25,7 +29,7 @@ def cvshow(img, filename=None):
     cv2.destroyAllWindows()
 
 def cvwrite(img, filename):
-    if(np.amax(img) > 1):
+    if(np.floor(np.amax(img)) > 1):
         img = img.astype(np.uint8)
 
     if img.dtype is (np.dtype('float64') or np.dtype('float32')):
@@ -65,29 +69,26 @@ def build_cube(faces):
         cube[3*w:4*w, w:2*w] = faces["back"]
     return cube
 
-#def shift_img(img, flow, alpha):
-#    xx, yy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
-#    xx_shifted = (xx - flow[:,:,0] * alpha).astype(np.uint8)
-#    xx_shifted[xx_shifted >= img.shape[1]] = img.shape[1] - 1
-#    yy_shifted = (yy - flow[:,:,1] * alpha).astype(np.uint8)
-#    yy_shifted[yy_shifted >= img.shape[0]] = img.shape[0] - 1
-#    print(xx.shape, xx)
-#    img_shifted = np.zeros_like(img)
-#    img_shifted = img[yy_shifted, xx_shifted, :]
-#
-#    return img_shifted
+def build_params(p=0.5, l=5, w=13, i=15, poly_expansion=7, sd=1.5, path=".", store=True):
+    params = {
+        "pyr_scale": p,
+        "levels": l,
+        "winsize": w,
+        "iters": i,
+        "poly_expansion": poly_expansion,
+        "sd": sd
+    }
+    
+    if store:
+        with open(path + '/ofparams.json', 'w', encoding='utf-8') as json_file:
+            json.dump(params, json_file, ensure_ascii=False, indent=4)
 
-def shift_img(img, flow, alpha):
-    xx, yy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
+    return params
 
-    xx_shifted = (xx - (flow[:,:,0] * alpha)).astype(np.float32)
-    yy_shifted = (yy - (flow[:,:,1] * alpha)).astype(np.float32)
-
-    shifted_coords = np.array([yy_shifted.flatten(), xx_shifted.flatten()])
-    shifted_img = np.zeros_like(img)
-    for d in range(img.shape[2]):
-        shifted_img[:,:,d] = np.reshape(map_coordinates(img[:,:,d], shifted_coords), (img.shape[0], img.shape[1]))
-
-    return shifted_img
-
-
+def load_params(path='.'):
+    try:
+        with open(path + '/ofparams.json', 'r') as json_file:
+            params = json.load(json_file)
+    except FileNotFoundError:
+        params = build_params(store=False)
+    return params;

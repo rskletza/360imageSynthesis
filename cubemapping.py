@@ -47,7 +47,7 @@ class ExtendedCubeMap:
             self.extended = utils.split_cube(imgpath)
             self.w_original = w_original
         else:
-            self.extended = self.extend_projection(96)
+            self.extended = self.extend_projection(105)
             self.w_original = self.w
             self.w = self.extended["front"].shape[0]
             if(format is not 'cube'):
@@ -66,26 +66,26 @@ class ExtendedCubeMap:
         calculates the original, non-extended cube
         """
         if self.format is "Xcube":
-#            faces = {}
-#            border_width = int(np.floor((self.w - self.w_original)/2))
+            faces = {}
+            border_width = int(np.floor((self.w - self.w_original)/2))
 #            print(border_width)
-#
-#            xx, yy = np.meshgrid(np.arange(self.w_original), np.arange(self.w_original))
-#            clipped_coords = np.array([yy.flatten(), xx.flatten()])
-#            depth = self._envMap.data.shape[2]
-#
-#            for face in FACES:
-#                clipped = self.extended[face][border_width:-border_width, border_width:-border_width, :]
-#                faces[face] = np.zeros((self.w_original, self.w_original, depth))
-#                for d in range(depth):
-#                    faces[face][:,:,d] = np.reshape(map_coordinates(clipped[:,:,d], clipped_coords), (self.w_original, self.w_original))
-#            print(faces["front"].shape)
-#            return utils.build_cube(faces)
 
-            fov = 2*np.rad2deg(np.arctan(self.w_original/self.w))
-            print("new fov", fov)
-            faces = self.extend_projection(fov)
+            xx, yy = np.meshgrid(np.arange(self.w_original), np.arange(self.w_original))
+            clipped_coords = np.array([yy.flatten(), xx.flatten()])
+            depth = self._envMap.data.shape[2]
+
+            for face in FACES:
+                clipped = self.extended[face][border_width:-border_width, border_width:-border_width, :]
+                faces[face] = np.zeros((self.w_original, self.w_original, depth))
+                for d in range(depth):
+                    faces[face][:,:,d] = np.reshape(map_coordinates(clipped[:,:,d], clipped_coords), (self.w_original, self.w_original))
+#            print(faces["front"].shape)
             return utils.build_cube(faces)
+
+#            fov = 2*np.rad2deg(np.arctan(self.w_original/self.w))
+#            print("new fov", fov)
+#            faces = self.extend_projection(fov)
+#            return utils.build_cube(faces)
         else:
             return self._envMap.data
 
@@ -96,14 +96,14 @@ class ExtendedCubeMap:
         """
         # adjacent is 1 (unit sphere) --> opposite is tan(fov)
         norm_original_width = np.tan(np.deg2rad(self.fov/2))*2
-        print("norm original", norm_original_width)
+#        print("norm original", norm_original_width)
         norm_new_width = np.tan(np.deg2rad(fov/2))*2
-        print("norm new", norm_new_width)
+#        print("norm new", norm_new_width)
 
         face_width = int(self.w * (norm_new_width/norm_original_width))
             
-        print("old face width", self.w)
-        print("new face width", face_width)
+#        print("old face width", self.w)
+#        print("new face width", face_width)
 #        face_width = int(self.w_original * 1.1) #TODO make dependent on fov
 
         rotations = {   "top": rotation_matrix(0, np.deg2rad(-90), 0),
@@ -131,7 +131,7 @@ class ExtendedCubeMap:
 
         flow_cube = utils.build_cube(flow)
         bgr_cube = utils.build_cube(bgr)
-#        utils.cvshow(bgr_cube, "flowcube")
+        utils.cvshow(bgr_cube, "flowcube")
 
 #        img = bgr_cube
 #        img = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_BGR2RGB)
@@ -141,3 +141,14 @@ class ExtendedCubeMap:
 #            out = img*255
 #        cv2.imwrite("../../data/out/flow_cube.jpg", out)
         return flow_cube
+
+    def optical_flow_face(self, face, other, flowfunc):
+        """
+        for testing purposes
+        applies an optical flow algorithm only on the front face of the extended cube
+        other: other ExtendedCubeMap for flow calculation
+        flowfunc: optical flow function returning a 2D array of vectors
+        """
+        flow, bgr = flowfunc(self.extended[face], other.extended[face])
+        utils.cvshow(bgr, "flow " + face)
+        return flow
