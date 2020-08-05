@@ -1,7 +1,11 @@
 import cv2
 import numpy as np
 import json
+import random
 from skimage import io
+from os import listdir
+
+#from capture import Capture
 
 def print_type(array):
     print("min: " , np.amin(array), ", max: ", np.amax(array))
@@ -92,3 +96,70 @@ def load_params(path='.'):
     except FileNotFoundError:
         params = build_params(store=False)
     return params;
+
+def parse_metadata(txt):
+    """
+    takes a text file as an input containing rotation and position metadata and returns the rotations and positions as np arrays
+    input must have rotation as quaternion and position for each image on a separate line, in order, separated by commas
+    the x/z plane is parallel to the floor
+    """
+    rotations = []
+    positions = []
+    with open(txt, 'r') as file:
+        lines = file.readlines() #TODO why caps
+        for line in lines:
+            strs = line.split(',')
+            if len(strs) is not 7:
+                raise Exception("One or more of the lines in the input file have the wrong number of values")
+
+            rot = np.array([strs[0], strs[1], strs[2], strs[3]]).astype(float)
+            rotations.append(rot)
+
+            pos = np.array([strs[4], strs[5], strs[6]]).astype(float)
+            positions.append(pos)
+
+    return np.array(positions), np.array(rotations)
+
+def get_point_on_plane(A, B, C, dist1=None, dist2=None):
+    """
+    calculates a (random) point D on the plane spanned by A, B, C
+    if dist1 and dist2 are None, a random value is used
+    dist1 determines the distance of point AB along the vector between A and B
+    dist2 determines the distance of point D along the vector between AB and C
+
+    A    
+    |       
+    AB----D---C
+    |
+    |
+    |
+    B
+    """
+    random.seed()
+    if dist1 is None:
+        dist1 = random.random()
+    if dist2 is None:
+        dist2 = random.random()
+    print(dist1, dist2)
+
+    AB = A + dist1 * (B - A) 
+    return AB + dist2 * (C - AB)
+
+def center(points):
+    """
+    takes a point cloud of numpy arrays
+    returns same point cloud centered around 0,0,0
+    """
+#   normalize
+#    minima = np.amin(points)
+#    points -= minima
+#
+#    maxima = np.amax(points)
+#    points = ( points/maxima ) * suggested_diameter
+
+    minima = np.amin(points, axis=0)
+    maxima = np.amax(points, axis=0)
+    center_point = minima + (maxima-minima) * 0.5
+    shifted_points = points - center_point
+
+    return shifted_points
