@@ -1,7 +1,9 @@
 import numpy as np
 import cv2
-
 from scipy.ndimage.interpolation import map_coordinates
+import matplotlib.pyplot as plt
+
+from envmap import EnvironmentMap, projections
 
 import utils
 from cubemapping import ExtendedCubeMap
@@ -62,5 +64,55 @@ class Interpolator:
             return A
         else:
             raise NotImplementedError
-
         
+def interpolate_nD(capture_set, indices, points):
+    dimension = capture_set.get_capture(indices[0]).img.shape[0]
+#    dimension = 20
+    imgformat = "latlong" #TODO get from envmap directly
+    for point in points:
+        new = EnvironmentMap(dimension, imgformat)
+        nx, ny, nz, _ = new.worldCoordinates()
+        targets = np.dstack((nx, ny, nz))
+        u_vectors = calc_unit_vectors(targets)
+        intersections = capture_set.calc_ray_intersection(point, u_vectors)
+#        utils.plot(intersections)
+        for viewpoint_i in indices:
+            #get the rays from this viewpoint that hit the intersection points
+            theta, phi = calc_ray_angles(capture_set.get_position(viewpoint_i), intersections)
+            rays = calc_uvector_from_angle(theta, phi, capture_set.get_radius())
+#            utils.plot(rays)
+            #get the uv coordinates that correspond to the rays
+            u,v = projections.world2latlong(rays[:,:,0], rays[:,:,1], rays[:,:,2])
+            envmap = EnvironmentMap(capture_set.get_capture(viewpoint_i).img, "latlong", copy=True)
+#            utils.cvshow(envmap.data, "01_ground_truth")
+            envmap.interpolate(u,v)
+            utils.cvshow(envmap.data, "02_synthesized")
+            
+
+def calc_ray_angles(source, targets):
+    """
+    https://en.wikipedia.org/wiki/Spherical_coordinate_system#Coordinate_system_conversions
+    """
+    #move so source is 0,0,0 and normalize
+    u_vectors = calc_unit_vectors(targets - source)
+    theta = np.arccos(u_vectors[...,2]) #z
+    phi = np.arctan2(u_vectors[...,1],u_vectors[...,0])
+    return theta, phi
+
+def calc_unit_vectors(vectors):
+    mag = np.linalg.norm(vectors, axis=2)
+    u_vectors = np.zeros_like(vectors)
+    u_vectors[:,:,0] = vectors[:,:,0]/mag
+    u_vectors[:,:,1] = vectors[:,:,1]/mag
+    u_vectors[:,:,2] = vectors[:,:,2]/mag #TODO find a cleaner way to do this np.dot?
+    return u_vectors
+
+def calc_uvector_from_angle(theta, phi, radius=1):
+    """
+    https://en.wikipedia.org/wiki/Spherical_coordinate_system#Coordinate_system_conversions
+    """
+    x = np.sin(theta) * np.cos(phi) * radius
+    y = np.sin(theta) * np.sin(phi) * radius
+    z = np.cos(theta) * radius
+    return calc_unit_vectors(np.dstack((x,y,z)))
+
