@@ -66,28 +66,43 @@ class Interpolator:
             raise NotImplementedError
         
 def interpolate_nD(capture_set, indices, points):
+    """
+    WIP
+    """
     dimension = capture_set.get_capture(indices[0]).img.shape[0]
-#    dimension = 20
     imgformat = "latlong" #TODO get from envmap directly
     for point in points:
+        #calculate the intersections from the new point with the scene
         new = EnvironmentMap(dimension, imgformat)
         nx, ny, nz, _ = new.worldCoordinates()
         targets = np.dstack((nx, ny, nz))
-        u_vectors = calc_unit_vectors(targets)
-        intersections = capture_set.calc_ray_intersection(point, u_vectors)
-#        utils.plot(intersections)
+        intersections = capture_set.calc_ray_intersection(point, targets)
         for viewpoint_i in indices:
             #get the rays from this viewpoint that hit the intersection points
-            theta, phi = calc_ray_angles(capture_set.get_position(viewpoint_i), intersections)
+            position = capture_set.get_position(viewpoint_i)
+            theta, phi = calc_ray_angles(position, intersections)
             rays = calc_uvector_from_angle(theta, phi, capture_set.get_radius())
-#            utils.plot(rays)
+
+            capture_set.draw_scene(indices=[viewpoint_i], s_points=np.array([point]), points=[position + rays, intersections, point+targets], sphere=False, rays=[[position+rays, intersections]])
             #get the uv coordinates that correspond to the rays
             u,v = projections.world2latlong(rays[:,:,0], rays[:,:,1], rays[:,:,2])
-            envmap = EnvironmentMap(capture_set.get_capture(viewpoint_i).img, "latlong", copy=True)
+#            redchannel = np.zeros_like(u)
+#            utils.cvshow(np.dstack((redchannel,u,v)))
+
+            #calculate the "flow" --> where which pixel has moved due to the new projection
+            u_orig, v_orig = new.imageCoordinates()
+            u_flow = (u_orig- u) * new.data.shape[1]
+            v_flow = (v_orig- v) * new.data.shape[0]
+            flow = np.dstack((u_flow,v_flow))
+            synthesized = shift_img(capture_set.get_capture(viewpoint_i).img, flow, 1)
 #            utils.cvshow(envmap.data, "01_ground_truth")
-            envmap.interpolate(u,v)
-            utils.cvshow(envmap.data, "02_synthesized")
-            
+            utils.cvshow(synthesized, "02_synthesized_" + str(viewpoint_i))
+
+################# interpolate using EnvironmentMap.interpolate function ############
+#            envmap = EnvironmentMap(capture_set.get_capture(viewpoint_i).img, "latlong", copy=True)
+#            envmap.interpolate(u,v)
+#            utils.cvshow(envmap.data, "02_synthesized_" + str(viewpoint_i))
+
 
 def calc_ray_angles(source, targets):
     """

@@ -123,19 +123,19 @@ class CaptureSet:
         gets or calculates the (estimated) radius of the scene
         at the moment this is a placeholder function that returns a radius that is slightly larger than the furthest point but in the end this should return a more accurate scene radius
         """
-        buf = 0.5
+        buf = 0.0
         maxima = np.amax(np.abs(self.positions), axis=0)
         rad = np.sqrt(np.power(maxima[0], 2) + np.power(maxima[1], 2))
-        return rad * (1 + buf)
+        return (rad + 1) * (1 + buf)
 
     def calc_ray_intersection(self, point, vectors):
         """
-        calculates the point at which the ray intersects the scene
-        http://viclw17.github.io/2018/07/16/raytracing-ray-sphere-intersection/
+        calculates the points at which the rays (point-vectors) intersect the scene
         https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-sphere-intersection
+        http://viclw17.github.io/2018/07/16/raytracing-ray-sphere-intersection/
 
         point is origin, t is distance and D is unit vectors
-        x^2 + y^2 + z^2 = R^2
+        x^2 + y^2 + z^2 = R^2 sphere function
         P^2 - R^2 = 0
         ...
         O^2 + D^2t^2 + 2ODt - R^O
@@ -146,7 +146,7 @@ class CaptureSet:
         a = np.ones(vectors.shape[:2])
 
         f_vecs = vectors.flatten()
-        f_points = np.full(f_vecs.shape, point).flatten()
+        f_points = np.full((vectors.shape[0]*vectors.shape[1],vectors.shape[2]), point).flatten()
         dot = np.sum((f_vecs * f_points).reshape(vectors.shape), axis=2)
         b = 2 * dot
         c = np.full_like(a, 1 - np.power(self.radius, 2)) #again, dot product of identity is 1
@@ -158,30 +158,40 @@ class CaptureSet:
             return
         t1 = (-b + np.sqrt(discriminants)) / (2 * a)
         t2 = (-b - np.sqrt(discriminants)) / (2 * a)
-        lengths = t1 if np.amin(t1) >= 0 else t2
+        #select the points with positive lengths
+        lengths = t1 if np.amin(t1) >= 0 else t2 #TODO make selection for each point separately
         lengths = np.dstack((lengths, lengths, lengths))
-        intersections = vectors * lengths
+        intersections = point + (vectors * lengths)
         
         return intersections
 
-    def draw_scene(self, indices=None, s_points=None, sphere=True):
+    def draw_scene(self, indices=None, s_points=None, sphere=True, points=None, rays=None, numpoints=200):
         """
         draws the scene as a set of points and the containing sphere representing the scene
         indices=None -> all points are drawn
         indices=[a,b,c] only points at indices a,b,c are drawn
         s_points -> extra points (i.e. synthesized points) are drawn in a separate color
         if sphere=False, the sphere representing the scene is omitted
+        points is a list of point arrays that can be drawn (e.g. intersections)
         this is a member function instead of a free function, so it can ensure correct handling of the axes (may change this later)
+        example usage:
+        capture_set.draw_scene(indices=[1,4], s_points=np.array([point]), points=[position + rays, intersections, point+targets], sphere=False, rays=[[position+rays, intersections]])
         """
         fig = plt.figure()
         ax = plt.axes(projection='3d')
 
         #draw captured viewpoints
         if indices is not None:
-            points = self.positions[indices]
+            viewpoints = self.positions[indices]
         else:
-            points = self.positions
-        ax.scatter(points[:,0], points[:,1], points[:,2], color='blue')
+            viewpoints = self.positions
+        ax.scatter(viewpoints[:,0], viewpoints[:,1], viewpoints[:,2], color='blue')
+
+        if points is not None:
+            colors = ['green', 'purple', 'magenta', 'cyan', 'yellow']
+            for i in range(len(points)):
+                p = utils.sample_points(points[i])
+                ax.scatter(p[:,:,0], p[:,:,1], p[:,:,2], color=colors[i%len(colors)])
 
         if sphere:
             u = np.linspace(0, np.pi, 15)
@@ -196,6 +206,24 @@ class CaptureSet:
         #draw additional (synthesized) points
         if s_points is not None:
             ax.scatter(s_points[:,0], s_points[:,1], s_points[:,2], color='orange')
+
+        if rays is not None:
+            for rayset in rays:
+                origins = rayset[0]
+                targets = rayset[1]
+                o = utils.sample_points(origins, numpoints)
+                t = utils.sample_points(targets, numpoints)
+                t = t.reshape(-1, t.shape[-1])
+                if origins.shape != targets.shape:
+                    if origins.shape[0] == 3 or origins.shape[0] == 2:
+                        o = np.full_like(t, o)
+                    else:
+                        raise NotImplementedError
+                else:
+                    o = o.reshape(-1, o.shape[-1])
+                diff = t - o
+
+                plt.quiver(o[:,0], o[:,1], o[:,2], diff[:,0], diff[:,1], diff[:,2], arrow_length_ratio=0.1)
 
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
