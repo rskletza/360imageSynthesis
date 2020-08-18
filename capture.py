@@ -211,7 +211,10 @@ class CaptureSet:
             for rayset in rays:
                 origins = rayset[0]
                 targets = rayset[1]
-                o = utils.sample_points(origins, numpoints)
+                if origins.shape != (3,):
+                    o = utils.sample_points(origins, numpoints)
+                else:
+                    o = origins
                 t = utils.sample_points(targets, numpoints)
                 t = t.reshape(-1, t.shape[-1])
                 if origins.shape != targets.shape:

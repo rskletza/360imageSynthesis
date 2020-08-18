@@ -16,10 +16,12 @@ cap_set_norm = NormalizedCaptureSet("../../data/captures/meetingRoom_360/normali
 #cap_set_norm.draw_scene()
 
 caps = cap_set_norm.get_captures([22, 24, 27])
-D_pos = utils.get_point_on_plane(caps[22].pos, caps[24].pos, caps[27].pos, dist1=0, dist2=1)
-#cap_set_norm.draw_scene(indices=[22], s_points=np.array([D_pos]))
-#print(D_pos)
-interpolation.interpolate_nD(cap_set_norm, [22], [D_pos])
+D_pos = utils.get_point_on_plane(caps[22].pos, caps[24].pos, caps[27].pos, dist1=0.0, dist2=0.0)
+#cap_set_norm.draw_scene(indices=[22, 24, 27], s_points=np.array([D_pos]))
+#inset = range(cap_set_norm.get_size())
+inset = list(range(22)) + list(range(23,cap_set_norm.get_size()))
+#inset = [22, 24, 27, 55]
+interpolation.interpolate_nD(cap_set_norm, inset, [D_pos])
 
 
 
