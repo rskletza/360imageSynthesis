@@ -123,7 +123,7 @@ class CaptureSet:
         gets or calculates the (estimated) radius of the scene
         at the moment this is a placeholder function that returns a radius that is slightly larger than the furthest point but in the end this should return a more accurate scene radius
         """
-        buf = 0.0
+        buf = 2.0
         maxima = np.amax(np.abs(self.positions), axis=0)
         rad = np.sqrt(np.power(maxima[0], 2) + np.power(maxima[1], 2))
         return (rad + 1) * (1 + buf)
@@ -182,10 +182,13 @@ class CaptureSet:
 
         #draw captured viewpoints
         if indices is not None:
-            viewpoints = self.positions[indices]
+            viewpoints = self.positions[[tuple(indices)]]
         else:
             viewpoints = self.positions
+            indices = list(range(self.get_size()))
         ax.scatter(viewpoints[:,0], viewpoints[:,1], viewpoints[:,2], color='blue')
+        for i in range(len(indices)):
+            ax.text(viewpoints[i,0], viewpoints[i,1], viewpoints[i,2], indices[i])
 
         if points is not None:
             colors = ['green', 'purple', 'magenta', 'cyan', 'yellow']

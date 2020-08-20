@@ -65,13 +65,14 @@ class Interpolator:
         else:
             raise NotImplementedError
         
-def interpolate_nD(capture_set, indices, points):
+def interpolate_nD(capture_set, indices, points, hack=None):
     """
     WIP
     """
     dimension = capture_set.get_capture(indices[0]).img.shape[0]
     imgformat = "latlong" #TODO get from envmap directly
     for point in points:
+        print("synthesizing ", point)
         #calculate the intersections from the new point with the scene
         new = EnvironmentMap(dimension, imgformat)
         nx, ny, nz, _ = new.worldCoordinates()
@@ -81,7 +82,7 @@ def interpolate_nD(capture_set, indices, points):
         images = []
         builder = ImageBuilder(new.data.shape[0], new.data.shape[1])
         for viewpoint_i in indices:
-            print("viewpoint ", viewpoint_i, "/", capture_set.get_size()-1)
+#            print("viewpoint ", viewpoint_i, "/", capture_set.get_size()-1)
             #get the rays from this viewpoint that hit the intersection points
             position = capture_set.get_position(viewpoint_i)
 #            capture_set.draw_scene(indices=[viewpoint_i], s_points=np.array([point]))
@@ -90,15 +91,15 @@ def interpolate_nD(capture_set, indices, points):
             theta, phi = calc_ray_angles(position, intersections)
             rays = calc_uvector_from_angle(theta, phi, capture_set.get_radius())
             #angle between the two vectors of each point is acos of dot product between rays (viewpoint vectors) and targets (synth point vectors)
-#            dot = np.sum((rays.flatten() * targets.flatten()).reshape(rays.shape), axis=2)
-#            dev_angles = np.arccos(dot)
-            theta_diff = np.abs(theta - theta_synth)
-            phi_diff = np.abs(phi - phi_synth)
-            theta_diff[theta_diff > np.pi] -= 2 * np.pi
-            theta_diff = np.abs(theta_diff)
-            phi_diff[phi_diff > np.pi] -= 2 * np.pi
-            phi_diff = np.abs(phi_diff)
-            dev_angles = np.dstack((theta_diff, phi_diff))
+            dot = np.sum((rays.flatten() * targets.flatten()).reshape(rays.shape), axis=2)
+            dev_angles = np.arccos(dot)
+#            theta_diff = np.abs(theta - theta_synth)
+#            phi_diff = np.abs(phi - phi_synth)
+#            theta_diff[theta_diff > np.pi] -= 2 * np.pi
+#            theta_diff = np.abs(theta_diff)
+#            phi_diff[phi_diff > np.pi] -= 2 * np.pi
+#            phi_diff = np.abs(phi_diff)
+#            dev_angles = np.dstack((theta_diff, phi_diff))
 
 
 #            theta_weights = rad2weight(theta_diff, np.pi/16)
@@ -138,13 +139,16 @@ def interpolate_nD(capture_set, indices, points):
 #            utils.cvshow(envmap.data, "02_synthesized_" + str(viewpoint_i))
 #            images.append(synthesized)
 #            utils.cvshow(builder.pixel_values, "out" + str(viewpoint_i))
-        utils.cvshow(builder.pixel_values, "out")
 #        out = np.zeros_like(new.data)
 #        for img in images:
 #            out += img
 #        out /= len(images)
 ##        utils.cvshow(out, "out")
-#        utils.cvwrite(out, "out.jpg")
+        if hack is not None:
+            utils.cvwrite(builder.pixel_values, "out_" + str(hack) + ".jpg")
+        else:
+            utils.cvwrite(builder.pixel_values, "out.jpg")
+#        utils.cvshow(builder.pixel_values, "out")
 
 def calc_ray_angles(source, targets):
     """
@@ -186,12 +190,12 @@ def rad2weight(angles, maxangle):
 
 class ImageBuilder:
     def __init__(self, height, width):
-        self.min_dev_angles = np.full((height, width, 2), np.pi)
+        self.min_dev_angles = np.full((height, width), np.pi)
         self.src_indices = np.zeros((height, width))
         self.pixel_values = np.zeros((height, width, 3))
 
     def update(self, dev_angles, index, image):
-        update_indices = np.nonzero(np.sum(dev_angles, axis=2) < np.sum(self.min_dev_angles, axis=2))
+        update_indices = np.nonzero(dev_angles < self.min_dev_angles)
 #        print(np.dstack((np.sum(dev_angles, axis=2), np.sum(self.min_dev_angles, axis=2))))
         self.min_dev_angles[update_indices] = dev_angles[update_indices]
         self.src_indices[update_indices] = index
@@ -199,4 +203,3 @@ class ImageBuilder:
         self.pixel_values[update_indices] = image[update_indices]
         test = np.zeros_like(self.pixel_values)
         test[update_indices] = image[update_indices]
-        utils.cvwrite(test, "viewpoint" + str(index) + ".jpg")
