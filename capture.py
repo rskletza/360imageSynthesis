@@ -43,7 +43,7 @@ class CaptureSet:
     also contains the model of the scene (as a sphere centered around 0,0,0)
     stores positional coordinates in x, y, z order, x/y being the plane parallel to the ground
     """
-    def __init__(self, location):
+    def __init__(self, location, radius=None):
         """
         location target must contain
             - a folder named images containing the images of the capture set in the same order as the metadata
@@ -53,13 +53,16 @@ class CaptureSet:
         self.names = sorted(listdir(location + "/images"))
         self.positions, self.rotations = preproc.parse_metadata(location + "/metadata.txt")
 
-        self.set_scene()
+        self.set_scene(radius)
 
-    def set_scene(self):
+    def set_scene(self, radius):
         minima = np.amin(self.positions, axis=0)
         maxima = np.amax(self.positions, axis=0)
         self.center = minima + (maxima-minima) * 0.5
-        self.radius = self.get_radius()
+        if radius is not None:
+            self.radius = radius
+        else:
+            self.radius = self.get_radius()
         print("radius: ", self.radius)
 
     def get_size(self):
@@ -123,10 +126,10 @@ class CaptureSet:
         gets or calculates the (estimated) radius of the scene
         at the moment this is a placeholder function that returns a radius that is slightly larger than the furthest point but in the end this should return a more accurate scene radius
         """
-        buf = 2.0
+        buf = 1.0
         maxima = np.amax(np.abs(self.positions), axis=0)
         rad = np.sqrt(np.power(maxima[0], 2) + np.power(maxima[1], 2))
-        return (rad + 1) * (1 + buf)
+        return (rad) * (1 + buf)
 
     def calc_ray_intersection(self, point, vectors):
         """
@@ -239,7 +242,7 @@ class CaptureSet:
 
 #TODO remove class and write into function
 class NormalizedCaptureSet(CaptureSet):
-    def __init__(self, location, raw_capture_set=None):
+    def __init__(self, location, raw_capture_set=None, radius=None):
         """
         NormalizedCaptureSet("../../data/captures/meetingRoom_test/normalized")
         or
@@ -276,4 +279,4 @@ class NormalizedCaptureSet(CaptureSet):
             self.rotations = raw_capture_set.rotations
             preproc.normalize_rotation(self)
 
-        self.set_scene()
+        self.set_scene(radius)
