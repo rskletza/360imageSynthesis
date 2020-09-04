@@ -71,36 +71,45 @@ class Interpolator3D:
 
     def interpolate(self, indices, point, knn=1):
         """
-        WIP
+        Synthesizes a point from the specified viewpoints
+
+        indices: viewpoints of the capture set to use
+        point: point to be synthesized
+        knn: the k nearest neighbors (based on deviation angle) to be used for blending the image
+        returns: the synthesized image of the desired viewpoint
+
+        Note: This function stores information in the class such as scene intersection points and deviation angles so that they can be visualized later on. This information is reset at each new interpolation
+
         """
+        #reset and fill the interpolation information for later use
         self.clear()
         print("synthesizing ", point)
         print("using ", indices, " for synthesis")
         self.indices = indices
         self.point = point
+        self.dev_angles = np.full((new.data.shape[0], new.data.shape[1], len(indices)), np.pi)
+
+
+        #get the rays from the new point that correspond to the uv coordinates of an equirectangular image at that point (points on the unit sphere in the point's local coordinate system)
+        #TODO don't use EnvironmentMap for this, just take the function that calculates the world coords
         dimension = self.capture_set.get_capture(indices[0]).img.shape[0]
         imgformat = "latlong"
-
-        #calculate the intersections from the new point with the scene
-        #TODO don't use EnvironmentMap for this, just take the function that calculates the world coords
         new = EnvironmentMap(dimension, imgformat)
-        #create structure to store uv coordinates of reprojected image for later use
-        self.dev_angles = np.full((new.data.shape[0], new.data.shape[1], len(indices)), np.pi)
         nx, nz, ny, _ = new.worldCoordinates() #switch y and z because EnvironmentMap has a different representation
         targets = np.dstack((nx, ny, nz))
+
+        #calculate the intersections from the new point with the scene
         self.intersections = self.capture_set.calc_ray_intersection(point, targets)
 #        self.capture_set.draw_scene(indices=[], s_points=np.array([point]), points=[point+targets, self.intersections], sphere=True)
 
-        #for each input viewpoint, determine and store the deviation angles
+        #for each input viewpoint, determine and store the difference between the ray angles of the viewpoint and the ray angles of the synthesized point (deviation angles)
         for counter, viewpoint_i in enumerate(indices):
             position = self.capture_set.get_position(viewpoint_i)
-#            self.capture_set.draw_scene(indices=[viewpoint_i], s_points=np.array([point]))
 
             #get the rays from this viewpoint that hit the intersection points
             theta, phi = calc_ray_angles(position, self.intersections)
             rays = calc_uvector_from_angle(theta, phi, self.capture_set.radius)
-            #calculate the deviation angles
-            #angle between the two vectors of each point is acos of dot product between rays (viewpoint vectors) and targets (synth point vectors)
+            #calculate the deviation angles (angle between the two vectors of each point is acos of dot product between rays (viewpoint vectors) and targets (synth point vectors))
             dot = np.sum((rays.flatten() * targets.flatten()).reshape(rays.shape), axis=2)
             dev_angles = np.arccos(np.around(dot, 5)) #round to avoid precision errors leading to values >|1|
             self.dev_angles[:,:,counter] = dev_angles
@@ -115,49 +124,66 @@ class Interpolator3D:
         return out
 
     def blend_image(self, knn):
-        sigma = 0.017
-        #get the indices of the sorted deviation angles and get the knn first
+        """
+        Blends the reprojected images of the k nearest neighbors according to a weighting scheme based on the deviation angles for each pixel
+        knn: number of neighbors to incorporate in the result image
+        returns: the blended image
+
+        Note: This function uses information stored by the interpolation function and also adds information
+        """
+        #get the knn first indices and angles of the sorted deviation angles (these indices are in [0,cap_set.get_size()] and are not the actual viewpoint indices)
         best_indices = np.argsort(self.dev_angles, axis=-1)[:,:,:knn]
         self.best_indices = best_indices
-        #get the deviation angles of the knn first
         dev_angles = np.sort(self.dev_angles, axis=-1)[:,:,:knn] #TODO combine argsort and sort? or get values by index
 
         #use these deviation angles to calculate the weights
-        #"image" of weights per rank in the knn order
-        weights = 1 / (1 + np.exp(500*(dev_angles - sigma)))
+        #weights matrix is an "image" of weights in order of best-worst angle
+#        weights = 1 / (1 + np.exp(500*(dev_angles - 0.017)))
+        weights = 1 / (1 + np.exp(4*(np.rad2deg(dev_angles) - 1)))
 
+        #modify the weights so that they sum up to 1
         sums = np.sum(weights, axis=-1)
-        weights /= sums[:,:,np.newaxis] #sum of weights should be 1
-        #get "real" indices per rank in the knn order (instead of the location in the list
 
-        #find all distinct viewpoint indices in the real indices image and reproject these viewpoints using self.uvs --> dict?
+        #find all of the viewpoints that are in the top knn and reproject these viewpoints using the corresponding uv coordinates in self.uvs
         used_indices = np.unique(best_indices)
-        print("used indices: ", used_indices)
+        #prepare array to store the reprojected images
         reproj_imgs = np.zeros((used_indices.shape[0], self.dev_angles.shape[0], self.dev_angles.shape[1], 3))
-#        for i in used_indices:
-        for i in range(len(used_indices)):
-            vp_i = used_indices[i] #viewpoint index
-            reprojected = self.reproject(self.capture_set.get_capture(self.indices[vp_i]).img, self.uvs[self.indices[vp_i]])
-            viewpoint_indices = np.nonzero(best_indices == i)
-            # masks: for each index rank image, where index is reprojected image index -> 1 else 0 (or weight instead of 1)
+
+        for i, vp_i in enumerate(used_indices):
+            reprojected = self.reproject(self.capture_set.get_capture(self.indices[vp_i]).img, self.uvs[self.indices[vp_i]]) #use real viewpoint index instead of the location in the used_index list
+            viewpoint_indices = np.nonzero(best_indices == vp_i)
+
+            #masks will be filled with eigher weight or 0 depending on how much influence the pixel at each rank should have (rank as in best - k-best deviation angle)
             mask = np.zeros_like(weights)
-            # multiply mask by weight for each index used, then multiply by reprojection
             mask[viewpoint_indices] = weights[viewpoint_indices]
             mask = np.add.reduce(mask, axis=2)
+
+            # multiply mask by weight for each index used, then multiply by reprojection
             reproj_imgs[i] = reprojected * mask[:,:,np.newaxis]
 #            utils.cvshow(reproj_imgs[i])
+
         # sum up all masked & weighted reprojections
         image = np.add.reduce(reproj_imgs, axis=0)
         return image
 
     def reproject(self, image, uvs):
-        envmap = EnvironmentMap(image, "latlong", copy=True)
+        """
+        reprojects an image using the EnvironmentMap.interpolate function
+        """
+        envmap = EnvironmentMap(image, "latlong")
         u, v = np.split(uvs, 2, axis=2)
         envmap.interpolate(u,v)
         return envmap.data
 
-#    def show_point_influences(self, s_point, uv_index, intersection_point, show_inset=True, sphere=True, best_arrows=False):
-    def show_point_influences(self, uv_height, uv_width, show_inset=True, sphere=True, best_arrows=False):
+    def show_point_influences(self, v, u, show_inset=True, sphere=True, best_arrows=False):
+        """
+        Shows the which viewpoints influence the pixel at a certain position (uv) in the last synthesized viewpoint. The pixel at the position uv is translated into world coordinates.
+        v: y position of the pixel
+        u: x position of the pixel
+        show_inset: show the locations and deviation angles of all other viewpoints in the capture set
+        sphere: show the scene model (sphere)
+        best_arrows: draw arrows from the synthesized point (in orange) and the best knn viewpoints (in blue) to the point P (P = world_coordinates(uv)
+        """
         uv_index = np.array([uv_height, uv_width])
         s_point = self.point
         intersection_point = self.intersections[uv_height, uv_width]
@@ -222,6 +248,9 @@ class Interpolator3D:
         plt.show()
 
     def visualize_best_deviation(self, saveas=None):
+        """
+        Saves or shows an image of the best deviation angles to the last synthesized viewpoint.
+        """
         dev_angles = np.rad2deg(np.sort(self.dev_angles, axis=-1)[:,:,:1])
         avg = np.average(dev_angles, axis=-1)
         imgplot = plt.imshow(avg, cmap="RdYlGn_r")
