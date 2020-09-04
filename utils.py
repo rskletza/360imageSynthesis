@@ -5,6 +5,8 @@ import random
 from skimage import io
 import matplotlib.pyplot as plt
 
+OUT = "/home/rskletza/Documents/Uni/MA/data/out/"
+
 def print_type(array):
     print("min: " , np.amin(array), ", max: ", np.amax(array))
     print("shape: ", array.shape, ", type: ", array.dtype)
@@ -32,10 +34,10 @@ def cvshow(img, filename=None):
 #        if(np.amax(img) <= 1):
 #            img = img*255
 #        print(np.amax(img), img.dtype)
-        cv2.imwrite("../../data/out/" + filename + ".jpg", img)
+        cv2.imwrite(OUT + filename + ".jpg", img)
     cv2.destroyAllWindows()
 
-def cvwrite(img, filename=None, path="../../data/out/"):
+def cvwrite(img, filename=None, path=OUT):
     if(np.floor(np.amax(img)) > 1):
         img = img.astype(np.uint8)
 
@@ -140,13 +142,13 @@ def plot_points(points, points2=None, points3=None, numpoints=200):
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
 
-    p = utils.sample_points(points, numpoints)
+    p = sample_points(points, numpoints)
     ax.scatter(p[:,:,0], p[:,:,1], p[:,:,2], color='blue')
     if points2 is not None:
-        p = utils.sample_points(points2, numpoints)
+        p = sample_points(points2, numpoints)
         ax.scatter(p[:,:,0], p[:,:,1], p[:,:,2], color='orange')
     if points3 is not None:
-        p = utils.sample_points(points3, numpoints)
+        p = sample_points(points3, numpoints)
         ax.scatter(p[:,:,0], p[:,:,1], p[:,:,2], color='purple')
 
 #    ax.scatter(
@@ -199,6 +201,9 @@ def sample_points(points, numpoints=200):
     samples points from a uniform distribution
     points is a 3d array, from which the samples are taken uniformly from the width and height
     """
+    if len(points.shape) == 1:
+        points = points[:,np.newaxis]
+
     if (points.shape[0] * points.shape[1]) > numpoints:
         #find the number of points to keep for width and height so that the total points will be numpoints
         height = int(np.sqrt(numpoints/2))

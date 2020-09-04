@@ -74,6 +74,16 @@ class CaptureSet:
         """
         return self.positions[index]
 
+    def get_positions(self, indices):
+        """
+        retrieves the positions of the captures at the specified indices
+        returns a 2D array containing these positions in order of argument input
+        """
+        pos = []
+        for i in indices:
+            pos.append(self.get_position(i))
+        return np.array(pos)
+
     def get_rotation(self, index):
         """
         retrieves the rotation of the capture at the specified index
@@ -126,7 +136,7 @@ class CaptureSet:
         gets or calculates the (estimated) radius of the scene
         at the moment this is a placeholder function that returns a radius that is slightly larger than the furthest point but in the end this should return a more accurate scene radius
         """
-        buf = 1.0
+        buf = 0.5
         maxima = np.amax(np.abs(self.positions), axis=0)
         rad = np.sqrt(np.power(maxima[0], 2) + np.power(maxima[1], 2))
         return (rad) * (1 + buf)
@@ -137,7 +147,7 @@ class CaptureSet:
         https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-sphere-intersection
         http://viclw17.github.io/2018/07/16/raytracing-ray-sphere-intersection/
 
-        point is origin, t is distance and D is unit vectors
+        point is origin, t is distance and D is unit vectors centered around 0,0,0
         x^2 + y^2 + z^2 = R^2 sphere function
         P^2 - R^2 = 0
         ...
@@ -145,14 +155,14 @@ class CaptureSet:
         quadratic function with a=D^2, b= 2OD, c=O^2-R^2
 
         """
-        #dot product of a vector with itself is 1
+        #dot product of a unit vector with itself is 1
         a = np.ones(vectors.shape[:2])
 
         f_vecs = vectors.flatten()
         f_points = np.full((vectors.shape[0]*vectors.shape[1],vectors.shape[2]), point).flatten()
         dot = np.sum((f_vecs * f_points).reshape(vectors.shape), axis=2)
         b = 2 * dot
-        c = np.full_like(a, 1 - np.power(self.radius, 2)) #again, dot product of identity is 1
+        c = np.full_like(a, np.dot(point, point)- np.power(self.radius, 2)) 
 
         discriminants = np.power(b, 2) - (4 * a * c)
         if np.amin(discriminants) < 0:
@@ -163,8 +173,7 @@ class CaptureSet:
         t2 = (-b - np.sqrt(discriminants)) / (2 * a)
         #select the points with positive lengths
         lengths = t1 if np.amin(t1) >= 0 else t2 #TODO make selection for each point separately
-        lengths = np.dstack((lengths, lengths, lengths))
-        intersections = point + (vectors * lengths)
+        intersections = point + (vectors * lengths[:,:,np.newaxis])
         
         return intersections
 
@@ -196,7 +205,7 @@ class CaptureSet:
         if points is not None:
             colors = ['green', 'purple', 'magenta', 'cyan', 'yellow']
             for i in range(len(points)):
-                p = utils.sample_points(points[i])
+                p = utils.sample_points(points[i], numpoints)
                 ax.scatter(p[:,:,0], p[:,:,1], p[:,:,2], color=colors[i%len(colors)])
 
         if sphere:
