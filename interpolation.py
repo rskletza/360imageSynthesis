@@ -6,53 +6,73 @@ import matplotlib.pyplot as plt
 from envmap import EnvironmentMap, projections
 
 import utils
+from optical_flow import farneback_of, visualize_flow
 from cubemapping import ExtendedCubeMap
 
-def shift_img(img, flow, alpha):
-    xx, yy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
-
-    xx_shifted = (xx - (flow[:,:,0] * alpha)).astype(np.float32)
-    yy_shifted = (yy - (flow[:,:,1] * alpha)).astype(np.float32)
-
-    shifted_coords = np.array([yy_shifted.flatten(), xx_shifted.flatten()])
-    shifted_img = np.ones_like(img)
-    for d in range(img.shape[2]):
-        shifted_img[:,:,d] = np.reshape(map_coordinates(img[:,:,d], shifted_coords), (img.shape[0], img.shape[1]))
-
-    return shifted_img
-
-types = ["cube", "planar"]
-#TODO make into Interpolator1D and create parent class
-class Interpolator:
+types = ["latlong", "cube", "planar"]
+#TODO create Interpolator parent class if appropriate (actually, Interpolator1D should probably be a parent class with its children being Interpolator1DPlanar and Interpolator1DPanoramic
+class Interpolator1D:
     """
-    creates an interpolator for either planar or cube (panoramic) images
+    creates an interpolator for either planar or panoramic images
     """
-    def __init__(self, type):
+    def __init__(self, imgA, imgB, type="latlong", flowfunc=farneback_of):
+        """
+        Initializes the interpolator with ExtendedCubeMaps and calculates the flow between the two images.
+
+        imgA, imgB: the viewpoints (as RGB images) used in the interpolation
+        type: one of [latlong | cube | planar]
+        flowfunc: the flow function to be used (at the moment, only farneback_of is implemented)
+        """
         self.type = type
+        if type == "planar":
+            self.A = imgA
+            self.B = imgB
+            self.flow = flowfunc(self.A, self.B)
+        else:
+            self.A = ExtendedCubeMap(imgA, type)
+            self.B = ExtendedCubeMap(imgB, type)
+            self.flow = self.A.optical_flow(self.B, flowfunc)
+        self.out = None
 
-    def linear(self, A, B, alpha):
-        out = (1-alpha) * self.get_image(A) + alpha * self.get_image(B)
-        return out
+    def clear(self):
+        self.out = None
 
-    def flow(self, A, B, flow, alpha):
-#        flow = np.full_like(flow, 0)
-        shifted_A = shift_img(self.get_image(A), flow, alpha)
-        shifted_B = shift_img(self.get_image(B), -flow, (1-alpha))
+    def interpolate(self, alpha):
+        """
+        Uses the flow vectors to shift and blend the images to synthesize point alpha between viewpoint A and B
+
+        alpha: distance along the vector between A and B
+
+        returns: the blended image
+
+        Note: self.out stores the blended image as an ExtendedCubeMap until the next time interpolate is called
+        """
+        self.clear()
+
+        shifted_A = shift_img(self.get_image(self.A), self.flow, alpha)
+        shifted_B = shift_img(self.get_image(self.B), -(self.flow), (1-alpha))
 
         out = (1 - alpha) * shifted_A + alpha * shifted_B
 
-        if self.type is "cube":
-            return ExtendedCubeMap(out, "Xcube", fov=A.fov, w_original=A.w_original)
+        if self.type is "planar":
+            self.out = out
         else:
-            return out
+            self.out = ExtendedCubeMap(out, "Xcube", fov=self.A.fov, w_original=self.A.w_original)
+            out = self.out.calc_clipped_cube()
+        return out
 
     def get_image(self, A):
-        if self.type is "cube":
-            return  A.get_Xcube()
-        elif self.type is "planar":
+        """
+        hack to be able to differentiate between ExtendedCubeMaps and planar images
+        this should become obsolete once there is a distinct class for the two cases
+        """
+        if self.type is "planar":
             return A
         else:
-            raise NotImplementedError
+            return  A.get_Xcube()
+
+    def get_flow_visualization(self):
+        return visualize_flow(self.flow)
         
 class Interpolator3D:
     def __init__(self, capture_set):
@@ -261,9 +281,39 @@ class Interpolator3D:
             plt.savefig(saveas)
         plt.clf()
 
+
+######################### helper functions #########################
+def shift_img(img, flow, alpha):
+    """
+    Shifts an image (in any color space) along the provided flow vectors
+
+    img: the image to be shifted
+    flow: the vectors per pixel that img should be shifted by
+    alpha: the amount the image should be shifted along the flow vectors
+
+    returns: the shifted image
+    """
+    xx, yy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
+
+    xx_shifted = (xx - (flow[:,:,0] * alpha)).astype(np.float32)
+    yy_shifted = (yy - (flow[:,:,1] * alpha)).astype(np.float32)
+
+    shifted_coords = np.array([yy_shifted.flatten(), xx_shifted.flatten()])
+    shifted_img = np.ones_like(img)
+    for d in range(img.shape[2]):
+        shifted_img[:,:,d] = np.reshape(map_coordinates(img[:,:,d], shifted_coords), (img.shape[0], img.shape[1]))
+
+    return shifted_img
+
 def calc_ray_angles(source, targets):
     """
+    Calculates the angles of the rays from a origin point
     https://en.wikipedia.org/wiki/Spherical_coordinate_system#Coordinate_system_conversions
+
+    source: the origin point of all the rays
+    targets: an array of vector end points
+
+    returns: an array of inclinations (theta) and an array of azimuths (phi) of the vector angles
     """
     #move so source is 0,0,0 and normalize
     u_vectors = calc_unit_vectors(targets - source)
@@ -272,6 +322,9 @@ def calc_ray_angles(source, targets):
     return theta, phi
 
 def calc_unit_vectors(vectors):
+    """
+    Calculates the unit vectors of given vectors
+    """
     mag = np.linalg.norm(vectors, axis=2)
     u_vectors = np.zeros_like(vectors)
     u_vectors[:,:,0] = vectors[:,:,0]/mag
@@ -281,7 +334,12 @@ def calc_unit_vectors(vectors):
 
 def calc_uvector_from_angle(theta, phi, radius=1):
     """
+    Calculates the unit vectors from the given inclinations and azimuths
     https://en.wikipedia.org/wiki/Spherical_coordinate_system#Coordinate_system_conversions
+
+    theta: array of inclinations
+    phi: array of azimuths
+    radius: TODO this shouldn't be necessary 
     """
     x = np.sin(theta) * np.cos(phi) * radius
     y = np.sin(theta) * np.sin(phi) * radius

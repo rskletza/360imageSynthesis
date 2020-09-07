@@ -64,6 +64,7 @@ class ExtendedCubeMap:
     def calc_clipped_cube(self):
         """
         calculates the original, non-extended cube
+        TODO: does not return the exact original cube!
         """
         if self.format is "Xcube":
             faces = {}
@@ -125,21 +126,10 @@ class ExtendedCubeMap:
         flowfunc: optical flow function returning a 2D array of vectors
         """
         flow = {}
-        bgr = {}
         for face in FACES:
-            flow[face], bgr[face] = flowfunc(self.extended[face], other.extended[face])
+            flow[face] = flowfunc(self.extended[face].astype(np.uint8), other.extended[face].astype(np.uint8))
 
         flow_cube = utils.build_cube(flow)
-        bgr_cube = utils.build_cube(bgr)
-        utils.cvshow(bgr_cube, "flowcube")
-
-#        img = bgr_cube
-#        img = cv2.cvtColor(img.astype(np.float32), cv2.COLOR_BGR2RGB)
-#        if(np.amax(img) > 1):
-#            out = img
-#        else:
-#            out = img*255
-#        cv2.imwrite("../../data/out/flow_cube.jpg", out)
         return flow_cube
 
     def optical_flow_face(self, face, other, flowfunc):
@@ -149,6 +139,4 @@ class ExtendedCubeMap:
         other: other ExtendedCubeMap for flow calculation
         flowfunc: optical flow function returning a 2D array of vectors
         """
-        flow, bgr = flowfunc(self.extended[face], other.extended[face])
-        utils.cvshow(bgr, "flow " + face)
-        return flow
+        return flowfunc(self.extended[face], other.extended[face])

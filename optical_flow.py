@@ -8,23 +8,19 @@ import utils
 def farneback_of(imgA, imgB, param_path="."):
     """
     uses the OpenCV implementation of the Farneback algorithm for calculating optical flow
-    input: two images that the optical flow should be calculated on, flow is calculated from A to B
-    output: a numpy array of flow vectors of the same width and height as the input images
-    TODO: at the moment, also returns the visualization of the flow
+    input: two uint8 images that the optical flow should be calculated on, flow is calculated from A to B
+    param_path: if specific optical flow parameters should be used, pass the file (which was created by utils.build_params)
+
+    returns: a numpy array of flow vectors of the same width and height as the input images
     """
     if (imgA is None or imgB is None):
         raise Exception("Image(s) not loaded correctly. Aborting")
 
-    #TODO nicer
-    if (np.amax(imgA) < 1):
-        imgA = (imgA * 255).astype(np.uint8)
-    if (np.amax(imgB) < 1):
-        imgB = (imgB * 255).astype(np.uint8)
+    if (imgA.dtype != np.uint8):
+        raise Exception("Image A needs to be type uint8. It is currently " + str(imgA.dtype))
 
-    if imgA.dtype is (np.dtype('float64') or np.dtype('float32')):
-        imgA = (imgA * 255).astype(np.uint8)
-    if imgB.dtype is (np.dtype('float64') or np.dtype('float32')):
-        imgB = (imgB * 255).astype(np.uint8)
+    if (imgB.dtype != np.uint8):
+        raise Exception("Image B needs to be type uint8. It is currently " + str(imgB.dtype))
 
     #check whether greyscale, if not, convert
     if (len(imgA.shape) > 2):
@@ -37,32 +33,29 @@ def farneback_of(imgA, imgB, param_path="."):
 
     flow = cv2.calcOpticalFlowFarneback(imgA, imgB, None, params['pyr_scale'], params['levels'], params['winsize'], params['iters'], params['poly_expansion'], params['sd'], 0)
 
-    hsv = np.zeros((imgA.shape[0], imgA.shape[1], 3))
+    return flow
+
+def visualize_flow(flow):
+    hsv = np.zeros((flow.shape[0], flow.shape[1], 3))
     hsv[...,1] = 255
     mag, ang = cv2.cartToPolar(flow[...,0], flow[...,1])
     hsv[...,0] = ang*180/np.pi/2
     hsv[...,2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     bgr = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-
-    return flow, bgr
-
+    return bgr
 
 def farneback_of_test(imgA, imgB):
     """
+    test flow parameters (this is quick and dirty)
     """
     if (imgA is None or imgB is None):
         raise Exception("Image(s) not loaded correctly. Aborting")
 
-    #TODO nicer
-    if (np.amax(imgA) < 1):
-        imgA = (imgA * 255).astype(np.uint8)
-    if (np.amax(imgB) < 1):
-        imgB = (imgB * 255).astype(np.uint8)
+    if (imgA.dtype != np.uint8):
+        raise Exception("Image A needs to be type uint8. It is currently " + str(imgA.dtype))
 
-    if imgA.dtype is (np.dtype('float64') or np.dtype('float32')):
-        imgA = (imgA * 255).astype(np.uint8)
-    if imgB.dtype is (np.dtype('float64') or np.dtype('float32')):
-        imgB = (imgB * 255).astype(np.uint8)
+    if (imgB.dtype != np.uint8):
+        raise Exception("Image B needs to be type uint8. It is currently " + str(imgB.dtype))
 
     #check whether greyscale, if not, convert
     if (len(imgA.shape) > 2):
