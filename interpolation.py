@@ -107,15 +107,11 @@ class Interpolator3D:
         print("using ", indices, " for synthesis")
         self.indices = indices
         self.point = point
-        self.dev_angles = np.full((new.data.shape[0], new.data.shape[1], len(indices)), np.pi)
-
-
+        dimensions = self.capture_set.get_capture(indices[0]).img.shape
+        self.dev_angles = np.full((dimensions[0], dimensions[1], len(indices)), np.pi)
         #get the rays from the new point that correspond to the uv coordinates of an equirectangular image at that point (points on the unit sphere in the point's local coordinate system)
-        #TODO don't use EnvironmentMap for this, just take the function that calculates the world coords
-        dimension = self.capture_set.get_capture(indices[0]).img.shape[0]
-        imgformat = "latlong"
-        new = EnvironmentMap(dimension, imgformat)
-        nx, nz, ny, _ = new.worldCoordinates() #switch y and z because EnvironmentMap has a different representation
+        u,v = calc_uv_coordinates(dimensions[0])
+        nx, nz, ny, _ = projections.latlong2world(u,v) #switch y and z because projections uses a different representation
         targets = np.dstack((nx, ny, nz))
 
         #calculate the intersections from the new point with the scene
@@ -163,6 +159,7 @@ class Interpolator3D:
 
         #modify the weights so that they sum up to 1
         sums = np.sum(weights, axis=-1)
+        weights /= sums[:,:,np.newaxis]
 
         #find all of the viewpoints that are in the top knn and reproject these viewpoints using the corresponding uv coordinates in self.uvs
         used_indices = np.unique(best_indices)
@@ -345,3 +342,15 @@ def calc_uvector_from_angle(theta, phi, radius=1):
     y = np.sin(theta) * np.sin(phi) * radius
     z = np.cos(theta) * radius
     return calc_unit_vectors(np.dstack((x,y,z)))
+
+def calc_uv_coordinates(imgheight):
+    """
+    adapted from EnvironmentMap.imageCoordinates at https://github.com/soravux/skylibs/blob/master/envmap/environmentmap.py
+    """
+    cols = np.linspace(0, 1, imgheight*2*2 + 1)
+    rows = np.linspace(0, 1, imgheight*2 + 1)
+
+    cols = cols[1::2]
+    rows = rows[1::2]
+
+    return [d.astype('float32') for d in np.meshgrid(cols, rows)]
