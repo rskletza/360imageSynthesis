@@ -42,20 +42,59 @@ class CaptureSet:
     set with all captures that holds metadata and paths and can retrieve pairs of both based on index
     also contains the model of the scene (as a sphere centered around 0,0,0)
     stores positional coordinates in x, y, z order, x/y being the plane parallel to the ground
+    CaptureSet()
     """
-    def __init__(self, location, radius=None):
+    def __init__(self, location, radius=None, in_place=False):
         """
         location target must contain
             - a folder named images containing the images of the capture set in the same order as the metadata
             - a file named metadata.txt containing the metadata (the format of the metadata is described in preproc.parse_metadata)
+        in_place: if true, images are normalized in place (i.e. rotated)
         """
         self.location = location
         self.names = sorted(listdir(location + "/images"))
-        self.positions, self.rotations = preproc.parse_metadata(location + "/metadata.txt")
+        self.positions = np.zeros((len(self.names), 3))
+        self.rotations = np.zeros((len(self.names), 4))
+
+        #try loading previously stored, normalized metadata
+        try:
+            with open(location + '/positions.npy', 'rb') as f:
+                self.positions = np.load(f)
+
+            with open(location + '/rotations.npy', 'rb') as f:
+                self.rotations = np.load(f)
+        except FileNotFoundError:
+            print("No previously stored information found, loading and normalizing metadata")
+            if not in_place:
+                imgs = location + '/images_raw'
+                if not path.exists(imgs):
+                    print("no path " + imgs)
+                    try:
+                        makedirs(imgs)
+                    except OSError as exc: # guard agains race condition
+                        if exc.ernno != errno.EEXIST:
+                            raise
+
+                #copy images over as backup
+                for i in range(len(self.names)):
+                    print("backing up " + self.names[i])
+                    img = cv2.cvtColor(self.get_capture(i).img, cv2.COLOR_BGR2RGB)
+                    cv2.imwrite(location + '/images_raw/' + str(i) + '.jpg', img)
+
+            #get raw positions and rotations
+            raw_pos, raw_rot = preproc.parse_metadata(location + "/metadata.txt")
+
+            #center points
+            self.positions = preproc.center(raw_pos)
+            self.store_positions()
+
+            self.rotations = raw_rot
+            preproc.normalize_rotation(self)
 
         self.set_scene(radius)
 
     def set_scene(self, radius):
+        #TODO why?? center should always be 0,0,0 anyway
         minima = np.amin(self.positions, axis=0)
         maxima = np.amax(self.positions, axis=0)
         self.center = minima + (maxima-minima) * 0.5
@@ -136,7 +175,7 @@ class CaptureSet:
         gets or calculates the (estimated) radius of the scene
         at the moment this is a placeholder function that returns a radius that is slightly larger than the furthest point but in the end this should return a more accurate scene radius
         """
-        buf = 0.5
+        buf = 0.1
         maxima = np.amax(np.abs(self.positions), axis=0)
         rad = np.sqrt(np.power(maxima[0], 2) + np.power(maxima[1], 2))
         return (rad) * (1 + buf)
@@ -248,44 +287,3 @@ class CaptureSet:
         ax.set_zlabel('Z')
 
         plt.show()
-
-#TODO remove class and write into function
-class NormalizedCaptureSet(CaptureSet):
-    def __init__(self, location, raw_capture_set=None, radius=None):
-        """
-        NormalizedCaptureSet("../../data/captures/meetingRoom_test/normalized")
-        or
-        NormalizedCaptureSet("../../data/captures/meetingRoom_test/normalized", raw_capture_set)
-        """
-        self.location = location
-
-        if raw_capture_set is None:
-            with open(location + '/positions.npy', 'rb') as f:
-                self.positions = np.load(f)
-
-            with open(location + '/rotations.npy', 'rb') as f:
-                self.rotations = np.load(f)
-
-        else:
-            imgs = location + '/images'
-            if not path.exists(imgs):
-                try:
-                    makedirs(imgs)
-                except OSError as exc: # guard agains race condition
-                    if exc.ernno != errno.EEXIST:
-                        raise
-
-            #copy images over for modification
-            for i in range(raw_capture_set.get_size()):
-                print(i)
-                img = cv2.cvtColor(raw_capture_set.get_capture(i).img, cv2.COLOR_BGR2RGB)
-                cv2.imwrite(location + '/images/' + str(i) + '.jpg', img)
-
-            #center points
-            self.positions = preproc.center(raw_capture_set.positions)
-            self.store_positions()
-
-            self.rotations = raw_capture_set.rotations
-            preproc.normalize_rotation(self)
-
-        self.set_scene(radius)

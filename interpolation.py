@@ -77,6 +77,7 @@ class Interpolator1D:
 class Interpolator3D:
     def __init__(self, capture_set):
         self.dev_angles = None
+        self.distances = None
         self.uvs = {}
         self.capture_set = capture_set
         self.indices = []
@@ -86,6 +87,7 @@ class Interpolator3D:
 
     def clear(self):
         self.dev_angles = None
+        self.distances = None
         self.uvs = {}
         self.best_indices = None
 
@@ -154,8 +156,8 @@ class Interpolator3D:
 
         #use these deviation angles to calculate the weights
         #weights matrix is an "image" of weights in order of best-worst angle
-#        weights = 1 / (1 + np.exp(500*(dev_angles - 0.017)))
-        weights = 1 / (1 + np.exp(4*(np.rad2deg(dev_angles) - 1)))
+        weights = 1 / (1 + np.exp(500*(dev_angles - 0.017)))
+#        weights = 1 / (1 + np.exp(4*(np.rad2deg(dev_angles) - 1)))
 
         #modify the weights so that they sum up to 1
         sums = np.sum(weights, axis=-1)
@@ -177,7 +179,7 @@ class Interpolator3D:
 
             # multiply mask by weight for each index used, then multiply by reprojection
             reproj_imgs[i] = reprojected * mask[:,:,np.newaxis]
-#            utils.cvshow(reproj_imgs[i])
+#            utils.cvwrite(reproj_imgs[i], "masked_" + str(self.indices[vp_i]) + ".jpg" )
 
         # sum up all masked & weighted reprojections
         image = np.add.reduce(reproj_imgs, axis=0)
@@ -191,6 +193,18 @@ class Interpolator3D:
         u, v = np.split(uvs, 2, axis=2)
         envmap.interpolate(u,v)
         return envmap.data
+
+    def weight(self, angle_w, dist_w):
+        """
+        the closer to 0 the better
+        """
+        distance_vectors = self.capture_set.get_positions(self.indices) - self.point
+        distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
+        self.distances = distances
+        n_distances = distances / (self.capture_set.radius * 2)
+
+        w = 1
+        metrics = angle_w * self.dev_angles + dist_w * n_distances
 
     def show_point_influences(self, v, u, show_inset=True, sphere=True, best_arrows=False):
         """
@@ -269,8 +283,7 @@ class Interpolator3D:
         Saves or shows an image of the best deviation angles to the last synthesized viewpoint.
         """
         dev_angles = np.rad2deg(np.sort(self.dev_angles, axis=-1)[:,:,:1])
-        avg = np.average(dev_angles, axis=-1)
-        imgplot = plt.imshow(avg, cmap="RdYlGn_r")
+        imgplot = plt.imshow(dev_angles, cmap="RdBu_r")
         plt.colorbar()
         if saveas is None:
             plt.show()
@@ -278,6 +291,26 @@ class Interpolator3D:
             plt.savefig(saveas)
         plt.clf()
 
+    def visualize_distances(self, saveas=None):
+        """
+        Saves or shows an image of the distances of the image areas used for synthesis
+        """
+        distance_vectors = self.capture_set.get_positions(self.indices) - self.point
+        distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
+
+        indices = self.best_indices[:,:,0].flatten()
+        distance_patches = distances[indices].reshape(self.dev_angles.shape[:2])
+        imgplot = plt.imshow(distance_patches, cmap="RdBu_r")
+        plt.colorbar()
+        if saveas is None:
+            plt.show()
+        else:
+            plt.savefig(saveas)
+#        plt.clf()
+#        imgplot = plt.imshow(self.best_indices[:,:,0], cmap="RdBu_r")
+#        plt.colorbar()
+#        plt.show()
+#        plt.clf()
 
 ######################### helper functions #########################
 def shift_img(img, flow, alpha):
