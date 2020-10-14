@@ -47,7 +47,7 @@ class ExtendedCubeMap:
             self.extended = utils.split_cube(imgpath)
             self.w_original = w_original
         else:
-            self.extended = self.extend_projection(105)
+            self.extended = self.extend_projection(110)
             self.w_original = self.w
             self.w = self.extended["front"].shape[0]
             if(format is not 'cube'):
@@ -119,7 +119,7 @@ class ExtendedCubeMap:
             faces[face] = self._envMap.project(fov, rotations[face], 1., (face_width, face_width))
         return faces
 
-    def optical_flow(self, other, flowfunc):
+    def optical_flow(self, other, flowfunc, params):
         """
         applies an optical flow algorithm on each face of the extended cube
         other: other ExtendedCubeMap for flow calculation
@@ -127,7 +127,7 @@ class ExtendedCubeMap:
         """
         flow = {}
         for face in FACES:
-            flow[face] = flowfunc(self.extended[face].astype(np.uint8), other.extended[face].astype(np.uint8))
+            flow[face] = flowfunc(self.extended[face].astype(np.uint8), other.extended[face].astype(np.uint8), params)
 
         flow_cube = utils.build_cube(flow)
         return flow_cube

@@ -15,23 +15,34 @@ class Interpolator1D:
     """
     creates an interpolator for either planar or panoramic images
     """
-    def __init__(self, imgA, imgB, type="latlong", flowfunc=farneback_of):
+    def __init__(self, imgA, imgB, type="latlong", flowfunc=farneback_of, param_path=".", flow=None, inverted_flow=None):
         """
         Initializes the interpolator with ExtendedCubeMaps and calculates the flow between the two images.
 
         imgA, imgB: the viewpoints (as RGB images) used in the interpolation
         type: one of [latlong | cube | planar]
         flowfunc: the flow function to be used (at the moment, only farneback_of is implemented)
+        flow, invert_flow: flow from A to B and from B to A, respectively
         """
         self.type = type
         if type == "planar":
             self.A = imgA
             self.B = imgB
-            self.flow = flowfunc(self.A, self.B)
+            if flow is None:
+                self.flow = flowfunc(self.A, self.B, param_path)
+                self.inverted_flow = flowfunc(self.B, self.A, param_path)
+            else:
+                self.flow = flow
+                self.inverted_flow = inverted_flow
         else:
             self.A = ExtendedCubeMap(imgA, type)
             self.B = ExtendedCubeMap(imgB, type)
-            self.flow = self.A.optical_flow(self.B, flowfunc)
+            if flow is None:
+                self.flow = self.A.optical_flow(self.B, flowfunc, param_path)
+                self.inverted_flow = self.B.optical_flow(self.A, flowfunc, param_path)
+            else:
+                self.flow = flow
+                self.inverted_flow = inverted_flow
         self.out = None
 
     def clear(self):
@@ -50,7 +61,11 @@ class Interpolator1D:
         self.clear()
 
         shifted_A = shift_img(self.get_image(self.A), self.flow, alpha)
-        shifted_B = shift_img(self.get_image(self.B), -(self.flow), (1-alpha))
+        utils.cvwrite(shifted_A, "shifted_A_" + str(alpha) + ".jpg")
+#        shifted_B = shift_img(self.get_image(self.B), -(self.flow), (1-alpha))
+#        shifted_B = shift_img(self.get_image(self.B), invert_flow(self.flow), (1-alpha))
+        shifted_B = shift_img(self.get_image(self.B), self.inverted_flow, (1-alpha))
+        utils.cvwrite(shifted_B, "shifted_B_" + str(alpha) + ".jpg")
 
         out = (1 - alpha) * shifted_A + alpha * shifted_B
 
@@ -84,12 +99,14 @@ class Interpolator3D:
         self.best_indices = None
         self.point = None
         self.intersections = None
+        self.flow_shifted_imgs = {}
 
     def clear(self):
         self.dev_angles = None
         self.distances = None
         self.uvs = {}
         self.best_indices = None
+        self.flow_shifted_imgs = {}
 
     def interpolate(self, indices, point, knn=1):
         """
@@ -138,6 +155,7 @@ class Interpolator3D:
             u,v = projections.world2latlong(rays[:,:,0], rays[:,:,2], rays[:,:,1])#switch y and z because EnvironmentMap has a different representation
             self.uvs[viewpoint_i] = np.dstack((u,v))
 
+        self.flow_blend_image()
         out = self.blend_image(knn)
         return out
 
@@ -184,6 +202,70 @@ class Interpolator3D:
         # sum up all masked & weighted reprojections
         image = np.add.reduce(reproj_imgs, axis=0)
         return image
+
+    def flow_blend_image(self):
+        #get the 2 first indices and angles of the sorted deviation angles (these indices are in [0,cap_set.get_size()] and are not the actual viewpoint indices)
+        best_indices = np.argsort(self.dev_angles, axis=-1)[:,:,:2]
+        self.best_indices = best_indices
+        self.visualize_indices()
+        dev_angles = np.sort(self.dev_angles, axis=-1)[:,:,:2] #TODO combine argsort and sort? or get values by index
+        #find the distinct pairs of best indices that will be used
+        unique_pairs = np.unique(np.reshape(best_indices, (best_indices.shape[0]*best_indices.shape[1], best_indices.shape[2])), axis=0)
+
+        self.flow_shifted_imgs = {}
+        masks = {}
+        image = np.zeros((self.dev_angles.shape[0], self.dev_angles.shape[1], 3))
+        for u_pair in unique_pairs:
+            #get the actual indices
+            pair = (self.indices[u_pair[0]], self.indices[u_pair[1]])
+            print(pair)
+            pair_set = frozenset(pair)
+            #where best_indices is u_pair -> 1 else 0
+            mask = (best_indices == u_pair)
+            mask = np.logical_and(mask[:,:,0], mask[:,:,1])
+#            masks[pair_set] = mask 
+
+            flow = self.capture_set.get_flow(pair)
+            interpolator = Interpolator1D(self.capture_set.get_capture(pair[0]).img, self.capture_set.get_capture(pair[1]).img, flow=flow)
+            dist = 0.5
+            shifted_cube = interpolator.interpolate(dist) #TODO don't always use 0.5 but use metric to determine distance
+            shifted_latlong = EnvironmentMap(shifted_cube, "cube").convertTo("latlong").data
+            position = utils.get_point_on_plane(self.capture_set.get_position(pair[0]), np.array([0,0,0]), self.capture_set.get_position(pair[1]), dist1=0, dist2=dist)
+
+            #get the rays from this viewpoint that hit the intersection points
+            theta, phi = calc_ray_angles(position, self.intersections)
+            rays = calc_uvector_from_angle(theta, phi, self.capture_set.radius)
+            u,v = projections.world2latlong(rays[:,:,0], rays[:,:,2], rays[:,:,1])#switch y and z because EnvironmentMap has a different representation
+            #uv = self.uvs[pair[0]] + (self.uvs[pair[1]] - self.uvs[pair[0]])
+#            self.flow_shifted_imgs[pair_set] = self.reproject(shifted_latlong, np.dstack((u,v)))
+            image += mask[:,:,np.newaxis] * self.reproject(shifted_latlong, np.dstack((u,v)))
+        utils.cvwrite(image, "flow_blend_test.jpg")
+
+#        #create interpolations of each of the 2 best
+#        orig_shape = self.best_indices.shape
+#        image = np.zeros((self.dev_angles.shape[0], self.dev_angles.shape[1], 3))
+#
+#        for i in range(self.best_indices.shape[0]):
+#            for j in range(self.best_indices.shape[1]):
+#                ind = best_indices[i,j]
+#                pair = (self.indices[ind[0]], self.indices[ind[1]])
+#                print(pair)
+#                pair_set = frozenset(pair)
+#                if pair_set not in self.flow_shifted_imgs:
+#                    flow = self.capture_set.get_flow(pair)
+#                    interpolator = Interpolator1D(self.capture_set.get_capture(pair[0]).img, self.capture_set.get_capture(pair[1]).img, flow=flow)
+#                    dist = 0.0
+#                    shifted_cube = interpolator.interpolate(dist) #TODO don't always use 0.5 but use metric to determine distance
+#                    shifted_latlong = EnvironmentMap(shifted_cube, "cube").convertTo("latlong").data
+#                    position = utils.get_point_on_plane(self.capture_set.get_position(pair[0]), np.array([0,0,0]), self.capture_set.get_position(pair[1]), dist1=0, dist2=dist)
+#
+#                    #get the rays from this viewpoint that hit the intersection points
+#                    theta, phi = calc_ray_angles(position, self.intersections)
+#                    rays = calc_uvector_from_angle(theta, phi, self.capture_set.radius)
+#                    u,v = projections.world2latlong(rays[:,:,0], rays[:,:,2], rays[:,:,1])#switch y and z because EnvironmentMap has a different representation
+#                    #uv = self.uvs[pair[0]] + (self.uvs[pair[1]] - self.uvs[pair[0]])
+#                    self.flow_shifted_imgs[pair_set] = self.reproject(shifted_latlong, np.dstack((u,v)))
+#                image[i,j] = self.flow_shifted_imgs[pair_set][i,j]
 
     def reproject(self, image, uvs):
         """
@@ -312,6 +394,24 @@ class Interpolator3D:
 #        plt.show()
 #        plt.clf()
 
+    def visualize_indices(self, saveas=None):
+#        img = np.zeros_like(self.best_indices.shape[0]*2, self.best_indices.shape[1])
+        fig, axs = plt.subplots(2)
+        axs[0].imshow(self.best_indices[:,:,0], cmap="tab20c")
+        axs[0].set_title("best indices")
+        im = axs[1].imshow(self.best_indices[:,:,1], cmap="tab20c")
+        axs[1].set_title("second-best indices")
+        cbar = fig.colorbar(im, ax=axs.ravel().tolist(), shrink=0.95)
+
+#        cbar.set_ticks(np.arange(0, 1.1, 0.5))
+#        cbar.set_ticklabels(['low', 'medium', 'high'])
+        if saveas is None:
+            plt.show()
+        else:
+            plt.savefig(saveas)
+
+
+
 ######################### helper functions #########################
 def shift_img(img, flow, alpha):
     """
@@ -334,6 +434,10 @@ def shift_img(img, flow, alpha):
         shifted_img[:,:,d] = np.reshape(map_coordinates(img[:,:,d], shifted_coords), (img.shape[0], img.shape[1]))
 
     return shifted_img
+
+def invert_flow(flow):
+    inverted_flow = shift_img(flow, flow, 1)
+    return -inverted_flow
 
 def calc_ray_angles(source, targets):
     """

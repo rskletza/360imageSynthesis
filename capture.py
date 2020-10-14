@@ -9,6 +9,10 @@ from envmap import EnvironmentMap
 
 import utils
 import preproc
+#TODO get rid of this dependency
+import optical_flow
+from cubemapping import ExtendedCubeMap
+
 
 class Capture:
     """
@@ -31,7 +35,6 @@ class Capture:
         utils.cvwrite(self.img, path)
         print("storing at " + path)
 
-
     def rotate(self, rotation):
         envmap = EnvironmentMap(self.img, 'latlong')
         envmap.rotate('DCM', rotation.as_matrix())
@@ -49,6 +52,7 @@ class CaptureSet:
         location target must contain
             - a folder named images containing the images of the capture set in the same order as the metadata
             - a file named metadata.txt containing the metadata (the format of the metadata is described in preproc.parse_metadata)
+            - (optional) a file named ofparams.json containing the optical flow parameters (see utils.load_params / utils.build_params)
         in_place: if true, images are normalized in place (i.e. rotated)
         """
         self.location = location
@@ -90,6 +94,15 @@ class CaptureSet:
 
             self.rotations = raw_rot
             preproc.normalize_rotation(self)
+
+        #create a directory for optical flow value storage
+        of = location + '/optical_flow'
+        if not path.exists(of):
+            try:
+                makedirs(of)
+            except OSError as exc: # guard agains race condition
+                if exc.ernno != errno.EEXIST:
+                        raise
 
         self.set_scene(radius)
 
@@ -159,6 +172,29 @@ class CaptureSet:
             location = self.location
         with open(location + '/positions.npy', 'wb') as f:
             np.save(f, self.positions)
+
+    def get_flow(self, indices):
+        """
+        lazy calculation of optical flow between two viewpoints
+        if flow has already been calculated, it will just be retrieved
+        optical flow is stored in cubemap shape
+        naming is always <smaller index>-<larger index>.npy
+        """
+        inverter = 1 if indices[0] < indices[1] else -1
+        indices = np.sort(np.asarray(indices))
+        path = self.location + '/optical_flow/' + str(indices[0]) + '-' + str(indices[1]) + '.npy'
+        try:
+            with open(path, 'rb') as f:
+                flow = np.load(f)
+
+        except FileNotFoundError:
+            imgA = self.get_capture(indices[0]).img
+            imgB = self.get_capture(indices[1]).img
+            flow = ExtendedCubeMap(imgA, "latlong").optical_flow(ExtendedCubeMap(imgB, "latlong"), optical_flow.farneback_of, params=self.location)
+            with open(path, 'wb') as f:
+                np.save(f, flow)
+
+        return inverter * flow
 
 #    def store(self, field):
 #        if field is "positions":

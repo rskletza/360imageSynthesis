@@ -1,10 +1,15 @@
+from os import listdir
+import os.path
 import numpy as np
 from scipy.spatial.transform import Rotation
+import cv2
 
 import utils
 
 dirname = "normalized"
 rawname = "raw"
+FACES = ['top', 'front', 'left', 'right', 'bottom', 'back']
+#TODO outsource things like FACES either completely here, or somewhere else, but right now it is defined here and in cubemapping
 
 def parse_metadata(txt):
     """
@@ -76,4 +81,19 @@ def normalize_rotation(capture_set):
         capture_set.rotations[i] = new_rot.as_quat()
     capture_set.store_rotations()
 
-
+def build_flowcube(path):
+    files = sorted(listdir(path + "/back"))
+    for f in files:
+        name, extension = os.path.splitext(f)
+        if extension == ".exr":
+            print(f)
+            faces = {}
+            for face in FACES:
+                facepath = path + face + "/" + f
+                print(facepath)
+                exr = cv2.imread(facepath, cv2.IMREAD_ANYCOLOR|cv2.IMREAD_ANYDEPTH)
+                exr = cv2.cvtColor(exr, cv2.COLOR_BGR2RGB)
+                faces[face] = -np.dstack((exr[:,:,0], -exr[:,:,1]))
+            flow = utils.build_cube(faces)
+            with open(path + '/' + name + '.npy', 'wb') as f:
+                    np.save(f, flow)
