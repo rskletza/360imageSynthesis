@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import optical_flow, utils
 import matplotlib.pyplot as plt
+import os
 
 def blender_exr2flow(path):
     """
@@ -18,28 +19,43 @@ def blender_exr2flow(path):
 #    plt.show()
     return flow
 
-    """
-    file = OpenEXR.InputFile(exr)
+def render_of(indices, blenderfile):
+    stream = os.system('blender '+ blenderfile + ' --background --python render_of.py ' + ' -- ' + str(indices[0]) + ' ' + str(indices[1]))
+    '''
+    OpticalFlow at 1001 is B-A and OpticalFlow at 1002 is A-B SEEMS OPPOSITE
+    build flowcube
+    return A-B and B-A
+    '''
+    path = '../../data/tmp/'
+    ofs = {}
+    for ofname in ["OpticalFlow1002", "OpticalFlow1001"]:
+        faces = {}
+        for face in utils.FACES:
+            facepath = path + ofname + "_" + face + ".exr"
+            exr = cv2.imread(facepath, cv2.IMREAD_ANYCOLOR|cv2.IMREAD_ANYDEPTH)
+            exr = cv2.cvtColor(exr, cv2.COLOR_BGR2RGB)
+            faces[face] = -np.dstack((exr[:,:,0], -exr[:,:,1]))
+        flow = utils.build_cube(faces)
+#        utils.cvshow(optical_flow.visualize_flow(flow), ofname)
+        ofs[ofname] = flow
+    flowAB = ofs["OpticalFlow1001"]
+    flowBA = ofs["OpticalFlow1002"]
 
-    # Compute the size
-    dw = file.header()['dataWindow']
-    sz = (dw.max.x - dw.min.x + 1, dw.max.y - dw.min.y + 1)
+    return (flowAB, flowBA)
 
-    FLOAT = Imath.PixelType(Imath.PixelType.FLOAT)
-    (R,G,B) = [array.array('f', file.channel(Chan, FLOAT)).tolist() for Chan in ("R", "G", "B") ]
-
-    img = np.zeros((h,w,3), np.float64)
-    img[:,:,0] = np.array(R).reshape(img.shape[0],-1)
-    img[:,:,1] = -np.array(G).reshape(img.shape[0],-1)
-
-    hsv = np.zeros((h,w,3), np.uint8)
-    hsv[...,1] = 255
-
-    mag, ang = cv2.cartToPolar(img[...,0], img[...,1])
-    hsv[...,0] = ang*180/np.pi/2
-    hsv[...,2] = cv2.normalize(mag,None,0,255,cv2.NORM_MINMAX)
-    bgr = cv2.cvtColor(hsv,cv2.COLOR_HSV2BGR)
-
-    return img, bgr, mag,ang
-
-    """
+#def build_flowcube(path):
+#    files = sorted(listdir(path + "/back"))
+#    for f in files:
+#        name, extension = os.path.splitext(f)
+#        if extension == ".exr":
+#            print(f)
+#            faces = {}
+#            for face in FACES:
+#                facepath = path + face + "/" + f
+#                print(facepath)
+#                exr = cv2.imread(facepath, cv2.IMREAD_ANYCOLOR|cv2.IMREAD_ANYDEPTH)
+#                exr = cv2.cvtColor(exr, cv2.COLOR_BGR2RGB)
+#                faces[face] = -np.dstack((exr[:,:,0], -exr[:,:,1]))
+#            flow = utils.build_cube(faces)
+#            with open(path + '/' + name + '.npy', 'wb') as f:
+#                    np.save(f, flow)

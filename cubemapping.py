@@ -24,7 +24,6 @@ R: right
 BO: bottom
 BA: back
 """
-FACES = ['top', 'front', 'left', 'right', 'bottom', 'back']
 
 class ExtendedCubeMap:
     """
@@ -75,7 +74,7 @@ class ExtendedCubeMap:
             clipped_coords = np.array([yy.flatten(), xx.flatten()])
             depth = self._envMap.data.shape[2]
 
-            for face in FACES:
+            for face in utils.FACES:
                 clipped = self.extended[face][border_width:-border_width, border_width:-border_width, :]
                 faces[face] = np.zeros((self.w_original, self.w_original, depth))
                 for d in range(depth):
@@ -115,7 +114,7 @@ class ExtendedCubeMap:
                         "back": rotation_matrix(0, np.deg2rad(180), 0)
                     }
         faces = {}
-        for face in FACES:
+        for face in utils.FACES:
             faces[face] = self._envMap.project(fov, rotations[face], 1., (face_width, face_width))
         return faces
 
@@ -126,7 +125,7 @@ class ExtendedCubeMap:
         flowfunc: optical flow function returning a 2D array of vectors
         """
         flow = {}
-        for face in FACES:
+        for face in utils.FACES:
             flow[face] = flowfunc(self.extended[face].astype(np.uint8), other.extended[face].astype(np.uint8), params)
 
         flow_cube = utils.build_cube(flow)

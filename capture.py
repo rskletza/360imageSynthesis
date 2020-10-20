@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation
 from envmap import EnvironmentMap
 
 import utils
-import preproc
+import preproc, supplementals
 #TODO get rid of this dependency
 import optical_flow
 from cubemapping import ExtendedCubeMap
@@ -47,7 +47,7 @@ class CaptureSet:
     stores positional coordinates in x, y, z order, x/y being the plane parallel to the ground
     CaptureSet()
     """
-    def __init__(self, location, radius=None, in_place=False):
+    def __init__(self, location, radius=None, in_place=False, blenderfile=None):
         """
         location target must contain
             - a folder named images containing the images of the capture set in the same order as the metadata
@@ -59,6 +59,7 @@ class CaptureSet:
         self.names = sorted(listdir(location + "/images"))
         self.positions = np.zeros((len(self.names), 3))
         self.rotations = np.zeros((len(self.names), 4))
+        self.blenderfile = blenderfile
 
         #try loading previously stored, normalized metadata
         try:
@@ -176,25 +177,33 @@ class CaptureSet:
     def get_flow(self, indices):
         """
         lazy calculation of optical flow between two viewpoints
-        if flow has already been calculated, it will just be retrieved
+        if flow and inverse flow have already been calculated, they will just be retrieved
         optical flow is stored in cubemap shape
-        naming is always <smaller index>-<larger index>.npy
+        returns flow and inverse flow
         """
-        inverter = 1 if indices[0] < indices[1] else -1
-        indices = np.sort(np.asarray(indices))
         path = self.location + '/optical_flow/' + str(indices[0]) + '-' + str(indices[1]) + '.npy'
+        path_inverse = self.location + '/optical_flow/' + str(indices[1]) + '-' + str(indices[0]) + '.npy'
         try:
             with open(path, 'rb') as f:
                 flow = np.load(f)
+            with open(path_inverse, 'rb') as f:
+                inverse_flow = np.load(f)
 
         except FileNotFoundError:
-            imgA = self.get_capture(indices[0]).img
-            imgB = self.get_capture(indices[1]).img
-            flow = ExtendedCubeMap(imgA, "latlong").optical_flow(ExtendedCubeMap(imgB, "latlong"), optical_flow.farneback_of, params=self.location)
+            if self.blenderfile is not None:
+                flow, inverse_flow = supplementals.render_of(indices, self.blenderfile)
+            else:
+                A = ExtendedCubeMap(self.get_capture(indices[0]).img, "latlong")
+                B = ExtendedCubeMap(self.get_capture(indices[1]).img, "latlong")
+
+                flow = A.optical_flow(B, optical_flow.farneback_of, params=self.location)
+                inverse_flow = B.optical_flow(A, optical_flow.farneback_of, params=self.location)
             with open(path, 'wb') as f:
                 np.save(f, flow)
+            with open(path_inverse, 'wb') as f:
+                np.save(f, inverse_flow)
 
-        return inverter * flow
+        return (flow, inverse_flow)
 
 #    def store(self, field):
 #        if field is "positions":

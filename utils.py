@@ -6,6 +6,7 @@ from skimage import io
 import matplotlib.pyplot as plt
 
 OUT = "/home/rskletza/Documents/Uni/MA/data/out/"
+FACES = ['top', 'front', 'left', 'right', 'bottom', 'back']
 
 def print_type(array):
     print("min: " , np.amin(array), ", max: ", np.amax(array))
