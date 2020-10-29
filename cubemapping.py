@@ -131,6 +131,19 @@ class ExtendedCubeMap:
         flow_cube = utils.build_cube(flow)
         return flow_cube
 
+    def apply_facewise(self, func, operands, params):
+        """
+        function: function to use on faces
+        operands: cubemap-shaped values to use in function (e.g. flowcube for shifting)
+        params: further parameters to use in function
+        """
+        ops = utils.split_cube(operands)
+        res = {}
+        for face in utils.FACES:
+            res[face] = func(self.extended[face], ops[face], params)
+        res = utils.build_cube(res)
+        return res
+
     def optical_flow_face(self, face, other, flowfunc):
         """
         for testing purposes

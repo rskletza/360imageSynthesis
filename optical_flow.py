@@ -44,6 +44,23 @@ def visualize_flow(flow):
     bgr = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
     return bgr
 
+def visualize_flow_arrows(img, flow, step=16):
+    """
+    adapted from
+    https://github.com/opencv/opencv/blob/master/samples/python/opt_flow.py
+    """
+    h, w = img.shape[:2]
+    y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2,-1).astype(int)
+    fx, fy = flow[y,x].T
+    lines = np.vstack([x, y, x+fx, y+fy]).T.reshape(-1, 2, 2)
+    lines = np.int32(lines + 0.5)
+    vis = img
+#    vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    cv2.polylines(vis, lines, 0, (0, 255, 0))
+    for (x1, y1), (_x2, _y2) in lines:
+        cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)
+    return vis
+
 def farneback_of_test(imgA, imgB):
     """
     test flow parameters (this is quick and dirty)

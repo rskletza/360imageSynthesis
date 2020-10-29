@@ -1,6 +1,5 @@
 import bpy
 import sys
-import copy
 
 '''
 command line arguments are
@@ -17,23 +16,23 @@ indexA = int(sys.argv[-2])
 indexB = int(sys.argv[-1])
 print("getting blender optical flow between viewpoints {0:d} and {1:d}".format(indexA, indexB))
 
-cam = bpy.context.scene.objects["Camera"]
+#cam = bpy.context.scene.objects["Camera"]
+room = bpy.context.scene.objects["Room"]
 
 bpy.context.scene.frame_set(indexA)
-locationA = copy.deepcopy(cam.location)
-#TODO if location.copy works as well, dont need the import
+locationA = room.location.copy()
 bpy.context.scene.frame_set(1000)
-cam.location = locationA
+room.location = locationA
+room.keyframe_insert(data_path="location", frame=1000)
+room.keyframe_insert(data_path="location", frame=1002)
 bpy.context.scene.update()
-cam.keyframe_insert(data_path="location", frame=1000)
-cam.keyframe_insert(data_path="location", frame=1002)
 
 bpy.context.scene.frame_set(indexB)
-locationB = cam.location.copy()#copy.deepcopy(cam.location)
+locationB = room.location.copy()
 bpy.context.scene.frame_set(1001)
-cam.location = locationB
+room.location = locationB
+room.keyframe_insert(data_path="location", frame=1001)
 bpy.context.scene.update()
-cam.keyframe_insert(data_path="location", frame=1001)
 
 bpy.data.scenes["Scene"].frame_start = 1001
 bpy.data.scenes["Scene"].frame_end = 1002
@@ -42,11 +41,11 @@ bpy.ops.render.render(animation=True)
 print(locationA)
 print(locationB)
 bpy.context.scene.frame_set(1000)
-print(cam.location)
+print(room.location)
 bpy.context.scene.frame_set(1001)
-print(cam.location)
+print(room.location)
 bpy.context.scene.frame_set(1002)
-print(cam.location)
+print(room.location)
 
 
 
