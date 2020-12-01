@@ -11,13 +11,16 @@ copy keyframe of Camera at indices[1] to position 1001
 TODO better: copy the keyframes and then delete all (this does not limit the number of viewpoints to 1000)
 render keyframe 1001 and 1002
 '''
+#outdir = os.getenv("HOME") + "optical_flow/"
+#bpy.data.scenes["Scene"].render.filepath = outdir
+#bpy.context.scene.node_tree.nodes['File Output'].base_path = outdir
 
 indexA = int(sys.argv[-2])
 indexB = int(sys.argv[-1])
 print("getting blender optical flow between viewpoints {0:d} and {1:d}".format(indexA, indexB))
 
-#cam = bpy.context.scene.objects["Camera"]
-room = bpy.context.scene.objects["Room"]
+room = bpy.context.scene.objects["Camera"]
+#room = bpy.context.scene.objects["Room"]
 
 bpy.context.scene.frame_set(indexA)
 locationA = room.location.copy()
@@ -38,14 +41,8 @@ bpy.data.scenes["Scene"].frame_start = 1001
 bpy.data.scenes["Scene"].frame_end = 1002
 bpy.ops.render.render(animation=True)
 
-print(locationA)
-print(locationB)
-bpy.context.scene.frame_set(1000)
-print(room.location)
-bpy.context.scene.frame_set(1001)
-print(room.location)
-bpy.context.scene.frame_set(1002)
-print(room.location)
+with open(outdir + '/lock.txt', 'w', encoding='utf-8') as f:
+    f.write(str(indexA) + '-' + str(indexB))
 
 
 

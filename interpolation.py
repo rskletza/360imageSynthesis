@@ -80,6 +80,9 @@ class Interpolator1D:
             out = self.out.calc_clipped_cube()
         return out
 
+    def trivial_interpolation(self, alpha):
+        return (1 - alpha) * self.get_image(self.A) + alpha * self.get_image(self.B)
+
     def get_image(self, A):
         """
         hack to be able to differentiate between ExtendedCubeMaps and planar images
@@ -346,17 +349,14 @@ class Interpolator3D:
         envmap.interpolate(u,v)
         return envmap.data
 
-    def weight(self, angle_w, dist_w):
-        """
-        the closer to 0 the better
-        """
+    def trivial_interpolation(self):
+        '''
+        nearest neighbor
+        '''
         distance_vectors = self.capture_set.get_positions(self.indices) - self.point
         distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
-        self.distances = distances
-        n_distances = distances / (self.capture_set.radius * 2)
-
-        w = 1
-        metrics = angle_w * np.abs(self.dev_angles) + dist_w * n_distances
+        nn = self.indices[np.argmin(distances)]
+        return self.capture_set.get_capture(nn).img
 
     def show_lr_points(self, uvs, target, t):
         s_point = self.point[:2]
@@ -518,15 +518,17 @@ class Interpolator3D:
             plt.savefig(saveas)
         plt.clf()
 
-    def visualize_all(self, identifier):
-        utils.cvwrite(self.reg_blend, "out_" +str(identifier)+".jpg")
-        self.visualize_data(self.get_best_deviations(), utils.OUT+'dev_angles_'+str(identifier)+".jpg")
-        self.visualize_data(self.get_distances(), utils.OUT+'index_distances_'+str(identifier)+".jpg")
-        self.visualize_indices(utils.OUT+"visualized_indices_" + str(identifier) + ".jpg")
+    def visualize_all(self, identifier, path=utils.OUT):
+        self.capture_set.draw_scene(self.indices, s_points=np.array([self.point]), twoD=True, saveas=path + str(identifier) + "_scene.jpg")
+        utils.cvwrite(self.trivial_interpolation(), str(identifier) + "_baseline" +".jpg")
+        utils.cvwrite(self.reg_blend, str(identifier) + "_out" +".jpg")
+        self.visualize_data(self.get_best_deviations(), utils.OUT +str(identifier) + '_dev_angles' + ".jpg")
+        self.visualize_data(self.get_distances(), utils.OUT + str(identifier) + '_index_distances' + ".jpg")
+        self.visualize_indices(utils.OUT + str(identifier) + "_visualized_indices" + ".jpg")
 
         if self.interpolation_distances is not None:
-            self.visualize_data(self.interpolation_distances, utils.OUT+'interpolation_distances_' + str(identifier) + ".jpg")
-            utils.cvwrite(self.flow_blend, "out_flow_" + str(identifier) + ".jpg")
+            self.visualize_data(self.interpolation_distances, utils.OUT + str(identifier) + '_interpolation_distances' + ".jpg")
+            utils.cvwrite(self.flow_blend, str(identifier) + "_out_flow.jpg")
 
 
 ######################### helper functions #########################

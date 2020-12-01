@@ -63,15 +63,15 @@ class CaptureSet:
 
         #try loading previously stored, normalized metadata
         try:
-            with open(location + '/positions.npy', 'rb') as f:
+            with open(location + 'positions.npy', 'rb') as f:
                 self.positions = np.load(f)
 
-            with open(location + '/rotations.npy', 'rb') as f:
+            with open(location + 'rotations.npy', 'rb') as f:
                 self.rotations = np.load(f)
         except FileNotFoundError:
             print("No previously stored information found, loading and normalizing metadata")
             if not in_place:
-                imgs = location + '/images_raw'
+                imgs = location + 'images_raw'
                 if not path.exists(imgs):
                     print("no path " + imgs)
                     try:
@@ -84,10 +84,10 @@ class CaptureSet:
                 for i in range(len(self.names)):
                     print("backing up " + self.names[i])
                     img = cv2.cvtColor(self.get_capture(i).img, cv2.COLOR_BGR2RGB)
-                    cv2.imwrite(location + '/images_raw/' + str(i) + '.jpg', img)
+                    cv2.imwrite(location + 'images_raw/' + str(i) + '.jpg', img)
 
             #get raw positions and rotations
-            raw_pos, raw_rot = preproc.parse_metadata(location + "/metadata.txt")
+            raw_pos, raw_rot = preproc.parse_metadata(location + "metadata.txt")
 
             #center points
             self.positions = preproc.center(raw_pos)
@@ -97,7 +97,7 @@ class CaptureSet:
             preproc.normalize_rotation(self)
 
         #create a directory for optical flow value storage
-        of = location + '/optical_flow'
+        of = location + 'optical_flow'
         if not path.exists(of):
             try:
                 makedirs(of)
@@ -147,7 +147,7 @@ class CaptureSet:
         """
         retrieves the entire capture at the specified index, containing the image, the position and the rotation
         """
-        name = self.location + "/images/" + str(index) + ".jpg"
+        name = self.location + "images/" + str(index) + ".jpg"
         return Capture(name, self.get_position(index), self.get_rotation(index))
 
     def get_captures(self, indices):
@@ -165,13 +165,13 @@ class CaptureSet:
     def store_rotations(self, location=None):
         if location is None:
             location = self.location
-        with open(location + '/rotations.npy', 'wb') as f:
+        with open(location + 'rotations.npy', 'wb') as f:
             np.save(f, self.rotations)
 
     def store_positions(self, location=None):
         if location is None:
             location = self.location
-        with open(location + '/positions.npy', 'wb') as f:
+        with open(location + 'positions.npy', 'wb') as f:
             np.save(f, self.positions)
 
     def get_flow(self, indices):
@@ -181,8 +181,8 @@ class CaptureSet:
         optical flow is stored in cubemap shape
         returns flow and inverse flow
         """
-        path = self.location + '/optical_flow/' + str(indices[0]) + '-' + str(indices[1]) + '.npy'
-        path_inverse = self.location + '/optical_flow/' + str(indices[1]) + '-' + str(indices[0]) + '.npy'
+        path = self.location + 'optical_flow/' + str(indices[0]) + '-' + str(indices[1]) + '.npy'
+        path_inverse = self.location + 'optical_flow/' + str(indices[1]) + '-' + str(indices[0]) + '.npy'
         try:
             with open(path, 'rb') as f:
                 flow = np.load(f)
@@ -191,7 +191,8 @@ class CaptureSet:
 
         except FileNotFoundError:
             if self.blenderfile is not None:
-                flow, inverse_flow = supplementals.render_of(indices, self.blenderfile)
+                #if location is None, remote calculation is used
+                flow, inverse_flow = supplementals.render_of(indices, self.blenderfile, location=None)
             else:
                 A = ExtendedCubeMap(self.get_capture(indices[0]).img, "latlong")
                 B = ExtendedCubeMap(self.get_capture(indices[1]).img, "latlong")
@@ -224,6 +225,64 @@ class CaptureSet:
         maxima = np.amax(np.abs(self.positions), axis=0)
         rad = np.sqrt(np.power(maxima[0], 2) + np.power(maxima[1], 2))
         return (rad) * (1 + buf)
+
+    def get_vps_in_radius(self, point, radius, exclude=None):
+        '''
+        exclude is a hack for testing
+        '''
+        distance_vectors = self.positions - point
+        distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
+        vps = np.argwhere(distances < radius).flatten()
+        #if no viewpoints exist within the radius, use all
+        if len(vps) == 0:
+            vps = np.array(list(range(len(self.positions))))
+        vps.tolist()
+        if exclude is not None:
+            vps.remove(exclude)
+        return vps
+
+    def get_2_closest_vps(self, point, exclude=None):
+        '''
+        quadrants are: 0,1,2,3, starting at top right, going clockwise
+        exclude is a hack for testing
+        '''
+        shifted = self.positions - point
+        print(shifted.shape)
+        quadrants = [{}, {}, {}, {}]
+        for i in range(shifted.shape[0]):
+            if exclude is not None:
+                if i == exclude:
+                    continue
+            if shifted[i][0] >= 0 and shifted[i][1] > 0: #top right
+                #directly calculate the distance
+                quadrants[0][i] = np.sqrt(np.sum(np.power(shifted[i], 2), axis=-1))
+
+            elif shifted[i][0] < 0 and shifted[i][1] >= 0: #top left
+                quadrants[3][i] = np.sqrt(np.sum(np.power(shifted[i], 2), axis=-1))
+
+            elif shifted[i][0] > 0 and shifted[i][1] <= 0: #bottom right
+                quadrants[1][i] = np.sqrt(np.sum(np.power(shifted[i], 2), axis=-1))
+            else: #bottom left
+                quadrants[2][i] = np.sqrt(np.sum(np.power(shifted[i], 2), axis=-1))
+
+        #just use one of them because we always have a regular grid (instead of checking which of the opposites has smaller distances) TODO future work
+        if len(quadrants[0]) == 0 or len(quadrants[2]) == 0:
+            if len(quadrants[1]) == 0 or len(quadrants[3]) == 0:
+                #there are no viewpoints in opposing quadrants, so just take the two closest
+                distance_vectors = self.positions - point
+                distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
+                return np.argsort(distances)[:2]
+            else:
+                quadA = quadrant[1]
+                quadB = quadrant[3]
+        else:
+            quadA = quadrants[0]
+            quadB = quadrants[2]
+        A = sorted(quadA.items(), key=lambda x: x[1], reverse=False)[0]
+        B = sorted(quadB.items(), key=lambda x: x[1], reverse=False)[0]
+
+        return [A[0], B[0]]
+
 
     def calc_ray_intersection(self, point, vectors):
         """
@@ -261,7 +320,7 @@ class CaptureSet:
         
         return intersections
 
-    def draw_scene(self, indices=None, s_points=None, sphere=True, points=None, rays=None, numpoints=200):
+    def draw_scene(self, indices=None, s_points=None, sphere=True, points=None, rays=None, numpoints=200, twoD=False, saveas=None):
         """
         draws the scene as a set of points and the containing sphere representing the scene
         indices=None -> all points are drawn
@@ -274,7 +333,11 @@ class CaptureSet:
         capture_set.draw_scene(indices=[1,4], s_points=np.array([point]), points=[position + rays, intersections, point+targets], sphere=False, rays=[[position+rays, intersections]])
         """
         fig = plt.figure()
-        ax = plt.axes(projection='3d')
+        if twoD:
+            ax = plt.axes()
+            ax.set_aspect('equal', 'box')
+        else:
+            ax = plt.axes(projection='3d')
 
         #draw captured viewpoints
         if indices is not None:
@@ -282,29 +345,47 @@ class CaptureSet:
         else:
             viewpoints = self.positions
             indices = list(range(self.get_size()))
-        ax.scatter(viewpoints[:,0], viewpoints[:,1], viewpoints[:,2], color='blue')
-        for i in range(len(indices)):
-            ax.text(viewpoints[i,0], viewpoints[i,1], viewpoints[i,2], indices[i])
+
+        if twoD:
+            ax.scatter(viewpoints[:,0], viewpoints[:,1], color='blue')
+            for i in range(len(indices)):
+                ax.text(viewpoints[i,0], viewpoints[i,1], indices[i])
+        else:
+            ax.scatter(viewpoints[:,0], viewpoints[:,1], viewpoints[:,2], color='blue')
+            for i in range(len(indices)):
+                ax.text(viewpoints[i,0], viewpoints[i,1], viewpoints[i,2], indices[i])
 
         if points is not None:
             colors = ['green', 'purple', 'magenta', 'cyan', 'yellow']
             for i in range(len(points)):
                 p = utils.sample_points(points[i], numpoints)
-                ax.scatter(p[:,:,0], p[:,:,1], p[:,:,2], color=colors[i%len(colors)])
+                if twoD:
+                    ax.scatter(p[:,:,0], p[:,:,1], color=colors[i%len(colors)])
+                else:
+                    ax.scatter(p[:,:,0], p[:,:,1], p[:,:,2], color=colors[i%len(colors)])
 
         if sphere:
-            u = np.linspace(0, np.pi, 15)
-            v = np.linspace(0, 2 * np.pi, 15)
+            if twoD:
+                ax.set_xlim((-self.radius, self.radius))
+                ax.set_ylim((-self.radius, self.radius))
+                circle = plt.Circle((0, 0), self.radius, color='0.8', fill=False)
+                ax.add_artist(circle)
+            else:
+                u = np.linspace(0, np.pi, 15)
+                v = np.linspace(0, 2 * np.pi, 15)
 
-            x = np.outer(np.sin(u), np.sin(v)) * self.radius
-            y = np.outer(np.sin(u), np.cos(v)) * self.radius
-            z = np.outer(np.cos(u), np.ones_like(v)) * self.radius
+                x = np.outer(np.sin(u), np.sin(v)) * self.radius
+                y = np.outer(np.sin(u), np.cos(v)) * self.radius
+                z = np.outer(np.cos(u), np.ones_like(v)) * self.radius
 
-            ax.plot_wireframe(x, y, z, color='0.8')
+                ax.plot_wireframe(x, y, z, color='0.8')
 
         #draw additional (synthesized) points
         if s_points is not None:
-            ax.scatter(s_points[:,0], s_points[:,1], s_points[:,2], color='orange')
+            if twoD:
+                ax.scatter(s_points[:,0], s_points[:,1], color='orange')
+            else:
+                ax.scatter(s_points[:,0], s_points[:,1], s_points[:,2], color='orange')
 
         if rays is not None:
             for rayset in rays:
@@ -325,10 +406,18 @@ class CaptureSet:
                     o = o.reshape(-1, o.shape[-1])
                 diff = t - o
 
-                plt.quiver(o[:,0], o[:,1], o[:,2], diff[:,0], diff[:,1], diff[:,2], arrow_length_ratio=0.1)
+                if twoD:
+                    pass
+                else:
+                    plt.quiver(o[:,0], o[:,1], o[:,2], diff[:,0], diff[:,1], diff[:,2], arrow_length_ratio=0.1)
 
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
+        if not twoD:
+            ax.set_zlabel('Z')
 
-        plt.show()
+        if saveas is None:
+            plt.show()
+        else:
+            plt.savefig(saveas)
+        plt.clf()

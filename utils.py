@@ -215,3 +215,6 @@ def sample_points(points, numpoints=200):
         return points[0:-1:dist_h, 0:-1:dist_w, :]
     else:
         return points
+
+def is_cubemap(image):
+    return (image.shape[0] / 4 == image.shape[1] / 3)

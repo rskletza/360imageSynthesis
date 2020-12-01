@@ -46,7 +46,7 @@ class ExtendedCubeMap:
             self.extended = utils.split_cube(imgpath)
             self.w_original = w_original
         else:
-            self.extended = self.extend_projection(110)
+            self.extended = self.extend_projection(170)
             self.w_original = self.w
             self.w = self.extended["front"].shape[0]
             if(format is not 'cube'):
