@@ -3,6 +3,7 @@ import cv2
 from scipy.ndimage.interpolation import map_coordinates
 import matplotlib.pyplot as plt
 import time
+import skimage.io
 
 from envmap import EnvironmentMap, projections
 
@@ -297,18 +298,21 @@ class Interpolator3D:
 
         self.interpolation_distances = (AS[:,:,0] * SP[:,:,1] - AS[:,:,1] * SP[:,:,0]) / ( AB[:,:,0] * SP[:,:,1] - AB[:,:,1] * SP[:,:,0] )
 #        self.visualize_data(self.interpolation_distances, saveas=utils.OUT + "interpolation_distances.jpg")
+
         #for the points that for some reason are outside of the line segment AB, use the closer viewpoint
         self.interpolation_distances[self.interpolation_distances < 0] = 0
         self.interpolation_distances[self.interpolation_distances > 1] = 1
+        self.interpolation_distances[np.isnan(self.interpolation_distances)] = 0.5 #TODO if the s_point is not between A and B, this is not 0.5
+
         #visualize where the points and lines etc are to debug
-#        for k in range(0, self.interpolation_distances.shape[0], 10):
-#            for l in range(0, self.interpolation_distances.shape[1], 10):
-#                uvs = (k,l)
-#                print(self.interpolation_distances[uvs])
-#                self.show_lr_points(uvs, targets[uvs[0], uvs[1]], self.interpolation_distances[uvs])
+        #elevation has no impact, since only points on a plane are used
+#        for l in range(0, self.interpolation_distances.shape[1], 1):
+#            uvs = (10,l)
+#            print(self.interpolation_distances[uvs])
+#            self.show_lr_points(uvs, targets[uvs[0], uvs[1]], self.interpolation_distances[uvs])
 
         #round in order to reduce the number of different sets (reduces accuracy but also compute time)
-        np.round(self.interpolation_distances, 2, self.interpolation_distances)
+        np.round(self.interpolation_distances, 1, self.interpolation_distances)
 
         #find the distinct pairs of best indices & interpolation distances that will be used so that the interpolated, reprojected images for these pixels only have to be calculated once
         sets = np.dstack((self.best_indices, self.interpolation_distances))
@@ -319,6 +323,7 @@ class Interpolator3D:
         for u_pair in unique_pairs:
             #get the actual indices
             pair = (self.indices[u_pair[0].astype(np.uint8)], self.indices[u_pair[1].astype(np.uint8)])
+            print("calculating image at ", u_pair[2], " between ", pair[0], "and", pair[1])
             dist = u_pair[2]
             #where best_indices and distance is u_pair -> 1 else 0
             mask = (sets == u_pair)
@@ -486,7 +491,7 @@ class Interpolator3D:
         if saveas is None:
             plt.show()
         else:
-            plt.savefig(saveas)
+            plt.savefig(saveas, bbox_inches='tight')
         plt.clf()
 
     def get_best_deviations(self):
@@ -515,20 +520,23 @@ class Interpolator3D:
         if saveas is None:
             plt.show()
         else:
-            plt.savefig(saveas)
+            plt.savefig(saveas, bbox_inches='tight')
         plt.clf()
 
     def visualize_all(self, identifier, path=utils.OUT):
         self.capture_set.draw_scene(self.indices, s_points=np.array([self.point]), twoD=True, saveas=path + str(identifier) + "_scene.jpg")
-        utils.cvwrite(self.trivial_interpolation(), str(identifier) + "_baseline" +".jpg")
-        utils.cvwrite(self.reg_blend, str(identifier) + "_out" +".jpg")
+        utils.cvwrite(self.trivial_interpolation(), str(identifier) + "_baseline_latlong.jpg")
+        utils.cvwrite(utils.latlong2cube(self.trivial_interpolation()), str(identifier) + "_baseline_cube.jpg")
+        utils.cvwrite(self.reg_blend, str(identifier) + "_out_latlong" +".jpg")
+        utils.cvwrite(utils.latlong2cube(self.reg_blend), str(identifier) + "_out_cube" +".jpg")
         self.visualize_data(self.get_best_deviations(), utils.OUT +str(identifier) + '_dev_angles' + ".jpg")
         self.visualize_data(self.get_distances(), utils.OUT + str(identifier) + '_index_distances' + ".jpg")
         self.visualize_indices(utils.OUT + str(identifier) + "_visualized_indices" + ".jpg")
 
         if self.interpolation_distances is not None:
             self.visualize_data(self.interpolation_distances, utils.OUT + str(identifier) + '_interpolation_distances' + ".jpg")
-            utils.cvwrite(self.flow_blend, str(identifier) + "_out_flow.jpg")
+            utils.cvwrite(self.flow_blend, str(identifier) + "_out_flow_latlong.jpg")
+            utils.cvwrite(utils.latlong2cube(self.flow_blend), str(identifier) + "_out_flow_cube.jpg")
 
 
 ######################### helper functions #########################

@@ -2,8 +2,11 @@ import cv2
 import numpy as np
 import json
 import random
+import skimage
 from skimage import io
 import matplotlib.pyplot as plt
+
+from envmap import EnvironmentMap
 
 OUT = "/home/rskletza/Documents/Uni/MA/data/out/"
 FACES = ['top', 'front', 'left', 'right', 'bottom', 'back']
@@ -13,6 +16,7 @@ def print_type(array):
     print("shape: ", array.shape, ", type: ", array.dtype)
 
 def cvshow(img, filename=None):
+    '''
     if(np.floor(np.amax(img)) > 2):
         img = img.astype(np.uint8)
 
@@ -37,8 +41,12 @@ def cvshow(img, filename=None):
 #        print(np.amax(img), img.dtype)
         cv2.imwrite(OUT + filename + ".jpg", img)
     cv2.destroyAllWindows()
+    '''
+    io.imshow(img)
+    io.show()
 
 def cvwrite(img, filename=None, path=OUT):
+    '''
     if(np.floor(np.amax(img)) > 1):
         img = img.astype(np.uint8)
 
@@ -46,11 +54,15 @@ def cvwrite(img, filename=None, path=OUT):
         img = (img * 255).astype(np.uint8)
 
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    '''
+
     if filename is None:
         fullpath = path
     else:
         fullpath = path + filename
-    cv2.imwrite(fullpath, img)
+#    cv2.imwrite(fullpath, img)
+    img = skimage.img_as_ubyte(img)
+    io.imsave(fullpath, img)
 
 def split_cube(cube):
     w = int(cube.shape[0]/4)
@@ -218,3 +230,15 @@ def sample_points(points, numpoints=200):
 
 def is_cubemap(image):
     return (image.shape[0] / 4 == image.shape[1] / 3)
+
+def load_img(path):
+    '''
+    loads an image at the specified path in rgb format in the range 0,1 in float32
+    '''
+    return (cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)/255).astype(np.float32)
+
+def latlong2cube(latlong):
+    '''
+    converts an image in latlong format to an image in cubemap format
+    '''
+    return EnvironmentMap(latlong, "latlong").convertTo("cube").data

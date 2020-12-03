@@ -36,7 +36,7 @@ def render_of(indices, blenderfile, location):
 
         lock = ""
         while lock != str(indices[0]) + "-" + str(indices[1]):
-            time.sleep(60)
+            time.sleep(10)
             lock = os.popen('ssh -l ubuntu 10.195.1.224 cat optical_flow/lock.txt').read().strip()
 
         #scp files to path

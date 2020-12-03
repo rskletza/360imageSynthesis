@@ -22,7 +22,8 @@ class Capture:
         self.pos = pos
         self.rot = rot
         self.imgpath = imgpath
-        self.img = cv2.cvtColor(cv2.imread(imgpath), cv2.COLOR_BGR2RGB)
+#        self.img = cv2.cvtColor(cv2.imread(imgpath), cv2.COLOR_BGR2RGB)
+        self.img = utils.load_img(imgpath)
 
     def store_image(self, path=None):
         """
@@ -200,9 +201,9 @@ class CaptureSet:
                 flow = A.optical_flow(B, optical_flow.farneback_of, params=self.location)
                 inverse_flow = B.optical_flow(A, optical_flow.farneback_of, params=self.location)
             with open(path, 'wb') as f:
-                np.save(f, flow)
+                np.save(f, flow.astype(np.float32))
             with open(path_inverse, 'wb') as f:
-                np.save(f, inverse_flow)
+                np.save(f, inverse_flow.astype(np.float32))
 
         return (flow, inverse_flow)
 
