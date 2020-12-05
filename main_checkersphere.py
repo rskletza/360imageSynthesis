@@ -5,7 +5,7 @@ from capture import Capture, CaptureSet
 import utils, interpolation, optical_flow
 from envmap import EnvironmentMap
 
-cap_set = CaptureSet("../../data/captures/evaluation/checkersphere250x500/", blenderfile="checkersphere.blend", radius=2.1213)
+cap_set = CaptureSet("../../data/captures/thesis_selection/checkersphere_6vps_250x500/", radius=2.1213)#, blenderfile="checkersphere.blend")
 
 s_points = np.array([
     [-1, -1, 0], [-1, -0.5, 0], [-1, 0, 0], [-1, 0.5, 0], [-1, 1, 0],
@@ -21,10 +21,24 @@ cap_set.draw_scene(s_points=s_points, twoD=True, saveas='checkersphere_scene.jpg
 
 interpolator = interpolation.Interpolator3D(cap_set)
 
-for i in range(1,s_points.shape[0]):
+def interpolate_maxmin(i):
     s_point = s_points[i]
-    inset = cap_set.get_vps_in_radius(s_point, radius=(cap_set.radius/2))
-#    inset = cap_set.get_2_closest_vps(s_point)
 
-    out = interpolator.interpolate(inset, s_point, knn=2, flow=True)
-    interpolator.visualize_all(ids[i])
+    #with max viewpoints
+    inset = cap_set.get_vps_in_radius(s_point, radius=(cap_set.radius/2))
+    interpolator.interpolate(inset, s_point, knn=2, blend=False)
+    interpolator.blend_image(knn=2)
+    interpolator.visualize_interpolation(str(ids[i])+"_max_vps", type="reg")
+
+    inset = cap_set.get_closest_vps(s_point, n=4)
+    interpolator.interpolate(inset, s_point, blend=False, flow=True)
+    interpolator.flow_blend_image()
+    interpolator.visualize_interpolation(str(ids[i])+"_max_vps", type="flow")
+
+    #with min viewpoints
+    inset = cap_set.get_closest_vps(s_point, 2)
+    interpolator.interpolate(inset, s_point, knn=2, blend=True, flow=True)
+    interpolator.visualize_interpolation(str(ids[i])+"_min_vps")
+
+for i in range(0,s_points.shape[0]):
+    interpolate_maxmin(i)

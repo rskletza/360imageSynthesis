@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 from scipy.ndimage.interpolation import map_coordinates
 import matplotlib.pyplot as plt
+import matplotlib.colors
 import time
 import skimage.io
 
@@ -109,7 +110,8 @@ class Interpolator3D:
         self.uvs = {}
         self.capture_set = capture_set
         self.indices = []
-        self.best_indices = None
+        self.best_indices_flow = None
+        self.best_indices_reg = None
         self.point = None
         self.intersections = None
         self.flow_blend = None
@@ -120,17 +122,19 @@ class Interpolator3D:
         self.interpolation_distances = None
         self.distances = None
         self.uvs = {}
-        self.best_indices = None
+        self.best_indices_flow = None
+        self.best_indices_reg = None
         self.flow_blend = None
         self.reg_blend = None
 
-    def interpolate(self, indices, point, knn=1, flow=False):
+    def interpolate(self, indices, point, knn=1, flow=False, blend=True):
         """
         Synthesizes a point from the specified viewpoints
 
         indices: viewpoints of the capture set to use
         point: point to be synthesized
         knn: the k nearest neighbors (based on deviation angle) to be used for blending the image
+        blend: if False, images aren't blended (which can be done later)
         returns: the synthesized image of the desired viewpoint
 
         Note: This function stores information in the class such as scene intersection points and deviation angles so that they can be visualized later on. This information is reset at each new interpolation
@@ -186,9 +190,10 @@ class Interpolator3D:
             u,v = projections.world2latlong(rays[:,:,0], rays[:,:,2], rays[:,:,1])#switch y and z because EnvironmentMap has a different representation
             self.uvs[viewpoint_i] = np.dstack((u,v))
 
-        self.reg_blend = self.blend_image(knn)
-        if flow:
-            self.flow_blend = self.flow_blend_image()
+        if blend:
+            self.blend_image(knn)
+            if flow:
+                self.flow_blend_image()
         end = time.time()
         print("Interpolation stats:\n \telapsed time: {0:4.2f}s\n \timage format: {1:d}x{2:d}\n \tnum viewpoints used: {3:d} ".format((end - start), dimensions[0], dimensions[1], len(indices)))
         return self.reg_blend
@@ -203,7 +208,7 @@ class Interpolator3D:
         """
         #get the knn first indices and angles of the sorted deviation angles (these indices are in [0,cap_set.get_size()] and are not the actual viewpoint indices)
         best_indices = np.argsort(np.abs(self.dev_angles), axis=-1)[:,:,:knn]
-        self.best_indices = best_indices
+        self.best_indices_reg = best_indices
         dev_angles = np.sort(np.abs(self.dev_angles), axis=-1)[:,:,:knn] #TODO combine argsort and sort? or get values by index
 
         #use these deviation angles to calculate the weights
@@ -234,8 +239,7 @@ class Interpolator3D:
 #            utils.cvwrite(reproj_imgs[i], "masked_" + str(self.indices[vp_i]) + ".jpg" )
 
         # sum up all masked & weighted reprojections
-        image = np.add.reduce(reproj_imgs, axis=0)
-        return image
+        self.reg_blend = np.add.reduce(reproj_imgs, axis=0)
 
     def flow_blend_image(self):
         """
@@ -248,7 +252,7 @@ class Interpolator3D:
         mod_dev[mod_dev < 0] += 2*np.pi
         sorted_indices = np.argsort(mod_dev, axis=-1)
         best_indices = np.dstack((sorted_indices[:,:,0], sorted_indices[:,:,-1]))
-        self.best_indices = np.copy(best_indices)
+        self.best_indices_flow = np.copy(best_indices)
 
         #get 2D vectors between best two indices
         unique_indices = np.unique(np.reshape(best_indices, (best_indices.shape[0]*best_indices.shape[1], best_indices.shape[2])), axis=0)
@@ -266,8 +270,8 @@ class Interpolator3D:
             np.putmask(vectors_A, mask, vec_A)
             np.putmask(vectors_B, mask, vec_B)
 
-        vectors_A = vectors_A.reshape(self.best_indices.shape)
-        vectors_B = vectors_B.reshape(self.best_indices.shape)
+        vectors_A = vectors_A.reshape(self.best_indices_flow.shape)
+        vectors_B = vectors_B.reshape(self.best_indices_flow.shape)
 
         '''
         intersect line AB with line point+targets SP (in 2D)
@@ -315,8 +319,8 @@ class Interpolator3D:
         np.round(self.interpolation_distances, 1, self.interpolation_distances)
 
         #find the distinct pairs of best indices & interpolation distances that will be used so that the interpolated, reprojected images for these pixels only have to be calculated once
-        sets = np.dstack((self.best_indices, self.interpolation_distances))
-        unique_pairs = np.unique(np.reshape(sets, (self.best_indices.shape[0]*self.best_indices.shape[1], sets.shape[2])), axis=0)
+        sets = np.dstack((self.best_indices_flow, self.interpolation_distances))
+        unique_pairs = np.unique(np.reshape(sets, (self.best_indices_flow.shape[0]*self.best_indices_flow.shape[1], sets.shape[2])), axis=0)
 
         masks = {}
         image = np.zeros((self.dev_angles.shape[0], self.dev_angles.shape[1], 3))
@@ -343,7 +347,7 @@ class Interpolator3D:
             rays = calc_uvector_from_angle(theta, phi, self.capture_set.radius)
             u,v = projections.world2latlong(rays[:,:,0], rays[:,:,2], rays[:,:,1])#switch y and z because EnvironmentMap has a different representation
             image += mask[:,:,np.newaxis] * self.reproject(shifted_latlong, np.dstack((u,v)))
-        return image
+        self.flow_blend = image
 
     def reproject(self, image, uvs):
         """
@@ -363,10 +367,12 @@ class Interpolator3D:
         nn = self.indices[np.argmin(distances)]
         return self.capture_set.get_capture(nn).img
 
+######################### visualization functions #########################
+
     def show_lr_points(self, uvs, target, t):
         s_point = self.point[:2]
-        index_A = self.indices[self.best_indices[uvs[0], uvs[1], 0]]
-        index_B = self.indices[self.best_indices[uvs[0], uvs[1], 1]]
+        index_A = self.indices[self.best_indices_flow[uvs[0], uvs[1], 0]]
+        index_B = self.indices[self.best_indices_flow[uvs[0], uvs[1], 1]]
         pos_A, pos_B = self.capture_set.get_positions([index_A, index_B])
 
         fig, ax = plt.subplots()
@@ -423,7 +429,7 @@ class Interpolator3D:
         ax = plt.axes(projection='3d')
 
         #best indices (actual viewpoint indices) for point uv
-        best_real_indices = [ self.indices[b_i] for b_i in self.best_indices[uv_index[0], uv_index[1]] ]
+        best_real_indices = [ self.indices[b_i] for b_i in self.best_indices_reg[uv_index[0], uv_index[1]] ]
 
         #all deviation angles for point uv
         dev_angles = np.rad2deg(self.dev_angles[uv_index[0], uv_index[1]])
@@ -479,19 +485,31 @@ class Interpolator3D:
 
         plt.show()
 
-    def visualize_data(self, data, saveas=None):
+    def visualize_data(self, data, saveas=None, maxval=None):
         """
         Saves or shows an image of interpolation data, e.g. deviation angles or interpolation distances
         """
         if data is None:
             print("No data passed to Interpolator3D.visualize_data(). Returning.")
             return
-        imgplot = plt.imshow(data, cmap="RdBu_r")
-        plt.colorbar()
+
+        fig = plt.figure()
+        ax = plt.axes()
+        imgplot = ax.imshow(data, cmap="RdBu_r")
+        if maxval is not None:
+            imgplot.set_clim(0,maxval)
+            extend = 'max'
+        else:
+            extend = 'neither'
+
+        cax = fig.add_axes([ax.get_position().x1+0.02,ax.get_position().y0,0.02,ax.get_position().height])
+        plt.colorbar(imgplot, extend=extend, cax=cax) # Similar to fig.colorbar(im, cax = cax)
+#        plt.clim(0,15)
+
         if saveas is None:
             plt.show()
         else:
-            plt.savefig(saveas, bbox_inches='tight')
+            plt.savefig(saveas, bbox_inches='tight', dpi=utils.DPI)
         plt.clf()
 
     def get_best_deviations(self):
@@ -504,40 +522,63 @@ class Interpolator3D:
         distance_vectors = self.capture_set.get_positions(self.indices) - self.point
         distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
 
-        indices = self.best_indices[:,:,0].flatten()
+        indices = self.best_indices_reg[:,:,0].flatten()
         distance_patches = distances[indices].reshape(self.dev_angles.shape[:2])
         return distance_patches
 
     def visualize_indices(self, saveas=None):
-#        img = np.zeros_like(self.best_indices.shape[0]*2, self.best_indices.shape[1])
-        fig, axs = plt.subplots(2)
-        axs[0].imshow(self.best_indices[:,:,0], cmap="tab20c")
-        axs[0].set_title("best indices")
-        im = axs[1].imshow(self.best_indices[:,:,1], cmap="tab20c")
+        #get the best two indices for each pixel (1D interpolation is between these)
+        pairs = np.dstack((self.best_indices_flow[:,:,0], self.best_indices_flow[:,:,1]))
+        #sort them so that 0-1 is equal to 1-0 (since it is semantically)
+        pairs = np.sort(pairs, axis=-1)
+        pairs = pairs.reshape(self.best_indices_flow.shape[0]*self.best_indices_flow.shape[1], 2)
+        indices, img = np.unique(pairs, return_inverse=True, axis=0)
+        img = img.reshape(self.best_indices_flow.shape[:2]).astype(np.float64)
 
-#        cbar.set_ticks(np.arange(0, 1.1, 0.5))
-#        cbar.set_ticklabels(['low', 'medium', 'high'])
+        labels = []
+        for i_set in indices:
+            indexA = self.indices[i_set[0]]
+            indexB = self.indices[i_set[1]]
+            labels.append(str(indexA) + "-" + str(indexB))
+        fig, ax = plt.subplots()
+
+        colors = ['#f5793a', '#a95aa1','#85c0f9', '#0f2080', '#fad9ad', '#ffffff']
+        cmap = matplotlib.colors.ListedColormap(colors[:len(labels)])
+        #change the min and max values so that the colorscale ticks are centered on each color
+        img[img == np.amax(img)] += 0.5
+        img[img == np.amin(img)] -= 0.5
+        cax = ax.imshow(img, cmap=cmap)
+
+        caxes = fig.add_axes([ax.get_position().x1+0.02,ax.get_position().y0,0.02,ax.get_position().height])
+        cbar = fig.colorbar(cax, ticks=list(range(len(labels))), cax=caxes)
+        cbar.ax.set_yticklabels(labels)
+
+
         if saveas is None:
             plt.show()
         else:
-            plt.savefig(saveas, bbox_inches='tight')
+            plt.savefig(saveas, bbox_inches='tight', dpi=utils.DPI)
         plt.clf()
 
-    def visualize_all(self, identifier, path=utils.OUT):
-        self.capture_set.draw_scene(self.indices, s_points=np.array([self.point]), twoD=True, saveas=path + str(identifier) + "_scene.jpg")
-        utils.cvwrite(self.trivial_interpolation(), str(identifier) + "_baseline_latlong.jpg")
-        utils.cvwrite(utils.latlong2cube(self.trivial_interpolation()), str(identifier) + "_baseline_cube.jpg")
-        utils.cvwrite(self.reg_blend, str(identifier) + "_out_latlong" +".jpg")
-        utils.cvwrite(utils.latlong2cube(self.reg_blend), str(identifier) + "_out_cube" +".jpg")
-        self.visualize_data(self.get_best_deviations(), utils.OUT +str(identifier) + '_dev_angles' + ".jpg")
-        self.visualize_data(self.get_distances(), utils.OUT + str(identifier) + '_index_distances' + ".jpg")
-        self.visualize_indices(utils.OUT + str(identifier) + "_visualized_indices" + ".jpg")
+    def visualize_interpolation(self, identifier, path=utils.OUT, type=""):
+        '''
+        type: "" | "reg" | "flow", where "" signifies "both"
+        '''
+        if type == "reg" or type == "":
+            utils.cvwrite(self.reg_blend, str(identifier) + "_out_latlong" +".jpg")
+            utils.cvwrite(utils.latlong2cube(self.reg_blend), str(identifier) + "_out_cube" +".jpg")
+            self.visualize_data(self.get_best_deviations(), saveas=utils.OUT +str(identifier) + '_dev_angles_' + type + ".jpg", maxval=14)
+            self.visualize_data(self.get_distances(), maxval=self.capture_set.radius, saveas=utils.OUT + str(identifier) + '_index_distances_' + type + ".jpg")
+            utils.cvwrite(self.trivial_interpolation(), str(identifier) + "_baseline_latlong.jpg")
+            utils.cvwrite(utils.latlong2cube(self.trivial_interpolation()), str(identifier) + "_baseline_cube.jpg")
 
-        if self.interpolation_distances is not None:
-            self.visualize_data(self.interpolation_distances, utils.OUT + str(identifier) + '_interpolation_distances' + ".jpg")
+        if type == "flow" or type == "":
+            self.visualize_data(self.interpolation_distances, saveas=utils.OUT + str(identifier) + '_interpolation_distances' + ".jpg")
             utils.cvwrite(self.flow_blend, str(identifier) + "_out_flow_latlong.jpg")
             utils.cvwrite(utils.latlong2cube(self.flow_blend), str(identifier) + "_out_flow_cube.jpg")
+            self.visualize_indices(utils.OUT + str(identifier) + "_visualized_indices" + ".jpg")
 
+        self.capture_set.draw_scene(self.indices, s_points=np.array([self.point]), twoD=True, saveas=path + str(identifier) + "_scene_" + type + ".jpg")
 
 ######################### helper functions #########################
 def shift_img(img, flow, alpha):

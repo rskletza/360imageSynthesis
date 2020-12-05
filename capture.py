@@ -9,8 +9,8 @@ from envmap import EnvironmentMap
 
 import utils
 import preproc, supplementals
-#TODO get rid of this dependency
 import optical_flow
+#TODO get rid of this dependency
 from cubemapping import ExtendedCubeMap
 
 
@@ -57,7 +57,7 @@ class CaptureSet:
         in_place: if true, images are normalized in place (i.e. rotated)
         """
         self.location = location
-        self.names = sorted(listdir(location + "/images"))
+        self.names = sorted(listdir(location + "images"))
         self.positions = np.zeros((len(self.names), 3))
         self.rotations = np.zeros((len(self.names), 4))
         self.blenderfile = blenderfile
@@ -207,16 +207,6 @@ class CaptureSet:
 
         return (flow, inverse_flow)
 
-#    def store(self, field):
-#        if field is "positions":
-#            pass
-#        elif field is "rotations":
-#            pass
-#        elif field is "image":
-#            pass
-#        else:
-#
-
     def get_radius(self):
         """
         gets or calculates the (estimated) radius of the scene
@@ -242,13 +232,13 @@ class CaptureSet:
             vps.remove(exclude)
         return vps
 
-    def get_2_closest_vps(self, point, exclude=None):
+    def get_closest_vps(self, point, n=2, exclude=None):
         '''
         quadrants are: 0,1,2,3, starting at top right, going clockwise
+        n: either 2 or 4
         exclude is a hack for testing
         '''
         shifted = self.positions - point
-        print(shifted.shape)
         quadrants = [{}, {}, {}, {}]
         for i in range(shifted.shape[0]):
             if exclude is not None:
@@ -267,23 +257,31 @@ class CaptureSet:
                 quadrants[2][i] = np.sqrt(np.sum(np.power(shifted[i], 2), axis=-1))
 
         #just use one of them because we always have a regular grid (instead of checking which of the opposites has smaller distances) TODO future work
-        if len(quadrants[0]) == 0 or len(quadrants[2]) == 0:
-            if len(quadrants[1]) == 0 or len(quadrants[3]) == 0:
-                #there are no viewpoints in opposing quadrants, so just take the two closest
+        if len(quadrants[0]) == 0 or len(quadrants[2]) == 0: #there are no viewpoints in quadrants 0,2
+            if len(quadrants[1]) == 0 or len(quadrants[3]) == 0: #there are no viewpoints in opposing quadrants, so just take the two closest
                 distance_vectors = self.positions - point
                 distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
                 return np.argsort(distances)[:2]
+            else: #there are viewpoints in quadrants 1,3 but none in 0,2, so take 2
+                A = sorted(quadrant[1].items(), key=lambda x: x[1], reverse=False)[0]
+                B = sorted(quadrant[3].items(), key=lambda x: x[1], reverse=False)[0]
+                return [A[0], B[0]]
+
+        else: #there are viewpoints in all quadrants
+            if n == 2:
+                A = sorted(quadrants[0].items(), key=lambda x: x[1], reverse=False)[0]
+                B = sorted(quadrants[2].items(), key=lambda x: x[1], reverse=False)[0]
+                return [A[0], B[0]]
+
+            elif n == 4:
+                A = sorted(quadrants[1].items(), key=lambda x: x[1], reverse=False)[0]
+                B = sorted(quadrants[3].items(), key=lambda x: x[1], reverse=False)[0]
+                C = sorted(quadrants[0].items(), key=lambda x: x[1], reverse=False)[0]
+                D = sorted(quadrants[2].items(), key=lambda x: x[1], reverse=False)[0]
+                return [A[0], B[0], C[0], D[0]]
+
             else:
-                quadA = quadrant[1]
-                quadB = quadrant[3]
-        else:
-            quadA = quadrants[0]
-            quadB = quadrants[2]
-        A = sorted(quadA.items(), key=lambda x: x[1], reverse=False)[0]
-        B = sorted(quadB.items(), key=lambda x: x[1], reverse=False)[0]
-
-        return [A[0], B[0]]
-
+                raise NotImplementedError("get_closest_vps is only defined for 2 or 4, not " + n)
 
     def calc_ray_intersection(self, point, vectors):
         """
@@ -412,13 +410,8 @@ class CaptureSet:
                 else:
                     plt.quiver(o[:,0], o[:,1], o[:,2], diff[:,0], diff[:,1], diff[:,2], arrow_length_ratio=0.1)
 
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        if not twoD:
-            ax.set_zlabel('Z')
-
         if saveas is None:
             plt.show()
         else:
-            plt.savefig(saveas)
+            plt.savefig(saveas, bbox_inches='tight')
         plt.clf()

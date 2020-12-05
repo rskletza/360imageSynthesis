@@ -10,6 +10,7 @@ from envmap import EnvironmentMap
 
 OUT = "/home/rskletza/Documents/Uni/MA/data/out/"
 FACES = ['top', 'front', 'left', 'right', 'bottom', 'back']
+DPI = 300
 
 def print_type(array):
     print("min: " , np.amin(array), ", max: ", np.amax(array))

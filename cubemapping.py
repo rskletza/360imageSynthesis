@@ -32,7 +32,7 @@ class ExtendedCubeMap:
     If it is a regular panorama, it is extended and the extended faces are stored
     If it is an extended cube, it is not extended but stored as is
     """
-    def __init__(self, imgpath, format, percent=1.2, fov=90, w_original=None):
+    def __init__(self, imgpath, format, fov=90, w_original=None):
         self.fov = fov
         self.format = format
 
@@ -46,7 +46,7 @@ class ExtendedCubeMap:
             self.extended = utils.split_cube(imgpath)
             self.w_original = w_original
         else:
-            self.extended = self.extend_projection(170)
+            self.extended = self.extend_projection(150)
             self.w_original = self.w
             self.w = self.extended["front"].shape[0]
             if(format is not 'cube'):
