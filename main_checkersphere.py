@@ -4,16 +4,25 @@ import string
 from capture import Capture, CaptureSet
 import utils, interpolation, optical_flow
 from envmap import EnvironmentMap
+from preproc import parse_metadata
 
-cap_set = CaptureSet("../../data/captures/thesis_selection/checkersphere_6vps_250x500/", radius=2.1213)#, blenderfile="checkersphere.blend")
+#cap_set = CaptureSet("../../data/captures/thesis_selection/checkersphere_6vps_250x500/", radius=2.1213)#, blenderfile="checkersphere.blend")
+cap_set = CaptureSet("../../data/captures/thesis_selection/square_synth_room/6x6/", radius=2.47, in_place=True)#, blenderfile="checkersphere.blend")
 
-s_points = np.array([
-    [-1, -1, 0], [-1, -0.5, 0], [-1, 0, 0], [-1, 0.5, 0], [-1, 1, 0],
-    [-0.5, -1, 0], [-0.5, -0.5, 0], [-0.5, 0, 0], [-0.5, 0.5, 0], [-0.5, 1, 0],
-    [0, -1, 0], [0, -0.5, 0], [0, 0, 0], [0, 0.5, 0], [0, 1, 0],
-    [0.5, -1, 0], [0.5, -0.5, 0], [0.5, 0, 0], [0.5, 0.5, 0], [0.5, 1, 0],
-    [1, -1, 0], [1, -0.5, 0], [1, 0, 0], [1, 0.5, 0], [1, 1, 0],
-]) #gt points
+s_points, _ = parse_metadata(cap_set.location + 'gt_metadata.txt')
+
+cap_set.draw_scene(s_points=s_points, twoD=True)
+
+print(cap_set.positions)
+print(getout)
+
+#s_points = np.array([
+#    [-1, -1, 0], [-1, -0.5, 0], [-1, 0, 0], [-1, 0.5, 0], [-1, 1, 0],
+#    [-0.5, -1, 0], [-0.5, -0.5, 0], [-0.5, 0, 0], [-0.5, 0.5, 0], [-0.5, 1, 0],
+#    [0, -1, 0], [0, -0.5, 0], [0, 0, 0], [0, 0.5, 0], [0, 1, 0],
+#    [0.5, -1, 0], [0.5, -0.5, 0], [0.5, 0, 0], [0.5, 0.5, 0], [0.5, 1, 0],
+#    [1, -1, 0], [1, -0.5, 0], [1, 0, 0], [1, 0.5, 0], [1, 1, 0],
+#]) #gt points
 
 ids = list(string.ascii_uppercase)
 
