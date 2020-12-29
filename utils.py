@@ -61,7 +61,9 @@ def cvwrite(img, filename=None, path=OUT):
         fullpath = path
     else:
         fullpath = path + filename
+    print(fullpath)
 #    cv2.imwrite(fullpath, img)
+    img = np.clip(img, -1, 1)
     img = skimage.img_as_ubyte(img)
     io.imsave(fullpath, img)
 

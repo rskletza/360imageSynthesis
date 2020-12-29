@@ -25,10 +25,9 @@ def parse_metadata(txt):
         lines = file.readlines()
         axis_order = np.array(lines[0].split(',')).astype(int)
         axis_sign = np.array(lines[1].split(',')).astype(int)
-        print("order", axis_order)
-        print("sign", axis_sign)
+#        print("order", axis_order)
+#        print("sign", axis_sign)
         for i in range(2,len(lines)):
-            print(lines[i])
             line = lines[i]
             strs = line.split(',')
             if len(strs) is not 7:

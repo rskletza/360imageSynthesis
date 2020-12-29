@@ -8,6 +8,9 @@ from envmap import EnvironmentMap
 from skimage.metrics import structural_similarity
 
 import utils
+from preproc import parse_metadata
+
+IDS = list(string.ascii_uppercase)[:25]
 
 #plot colors from https://venngage.com/blog/color-blind-friendly-palette/#4
 COLORS = ['#f5793a', '#a95aa1','#85c0f9', '#0f2080', '#fad9ad', '#ffffff']
@@ -29,6 +32,14 @@ class ResultSet:
         self.ids = ids
         self.respath = tlpath + "results/" + vps + "_vps/"
         self.vps = vps
+        self.dims = () 
+        with open(self.tlpath + '../dims.txt', 'r') as f:
+            data = f.readlines()
+            dims0 = float(data[0].strip())
+            dims1 = float(data[1].strip())
+            self.dims = (dims0, dims1)
+
+        self.radius = np.sqrt(2) * np.amax(self.dims)/2
         if blendtype in BLENDTYPES:
             #(0: baseline, 1: regular, 2: flow)
             self.blendtype = BLENDTYPES.index(blendtype)
@@ -79,8 +90,13 @@ class ResultSet:
 
         ax.boxplot(self.metrics[])
     '''
+    def get_gt_positions(self):
+        gt_pos, _ = parse_metadata(self.tlpath + "gt_metadata.txt")
+        return gt_pos * np.array([-1,1,1])
 
-
+    def get_vps(self):
+        pos, _ = parse_metadata(self.tlpath + "metadata.txt")
+        return pos
 
 def calc_metrics(out_dir, gt_dir, ids):
     '''
@@ -192,7 +208,7 @@ def calc_metrics(out_dir, gt_dir, ids):
         sortedIDs = {BLENDTYPES[0]: {}, BLENDTYPES[1]: {}, BLENDTYPES[2]: {}}
         for blendnum in range(len(BLENDTYPES)):
             for metricnum in range(len(METRICTYPES)):
-                sorted_column = np.argsort(all_eval_vals[:, blendnum*3+metricnum], axis=0)
+                sorted_column = np.argsort(eval_vals_np[:, blendnum*3+metricnum], axis=0)
                 asciiIDs = []
                 for idnum in sorted_column:
                     asciiIDs.append(string.ascii_uppercase[idnum])

@@ -87,5 +87,3 @@ for i, plot_type in enumerate(plot_types):
 
 plt.savefig(utils.OUT + "eval_" + evaluation_sets.name + '.png', bbox_inches='tight', dpi=utils.DPI)
 plt.show()
-
-

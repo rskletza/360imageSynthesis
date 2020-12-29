@@ -310,10 +310,10 @@ class Interpolator3D:
 
         #visualize where the points and lines etc are to debug
         #elevation has no impact, since only points on a plane are used
-#        for l in range(0, self.interpolation_distances.shape[1], 1):
+#        for l in range(0, self.interpolation_distances.shape[1], 60):
 #            uvs = (10,l)
 #            print(self.interpolation_distances[uvs])
-#            self.show_lr_points(uvs, targets[uvs[0], uvs[1]], self.interpolation_distances[uvs])
+#            self.show_lr_points(uvs, targets[uvs[0], uvs[1]], self.interpolation_distances[uvs], saveas=utils.OUT + "flow_pos" + str(l) + ".jpg")
 
         #round in order to reduce the number of different sets (reduces accuracy but also compute time)
         np.round(self.interpolation_distances, 1, self.interpolation_distances)
@@ -369,7 +369,7 @@ class Interpolator3D:
 
 ######################### visualization functions #########################
 
-    def show_lr_points(self, uvs, target, t):
+    def show_lr_points(self, uvs, target, t, saveas=None):
         s_point = self.point[:2]
         index_A = self.indices[self.best_indices_flow[uvs[0], uvs[1], 0]]
         index_B = self.indices[self.best_indices_flow[uvs[0], uvs[1], 1]]
@@ -379,6 +379,7 @@ class Interpolator3D:
         fig.canvas.set_window_title(str(uvs[0]) + ", " + str(uvs[1]))
         ax.set_xlim((-self.capture_set.radius, +self.capture_set.radius))
         ax.set_ylim((-self.capture_set.radius, +self.capture_set.radius))
+        ax.set_aspect('equal')
 
         scene_model = plt.Circle((0, 0), self.capture_set.radius, color='0.8', fill=False)
         #draw the scene model (circle)
@@ -386,19 +387,19 @@ class Interpolator3D:
 
         #draw the synthesized point
         ax.scatter(s_point[0], s_point[1], color="orange")
-        ax.text(s_point[0], s_point[1], "s_point")
+        ax.annotate("S", xy=(s_point[0], s_point[1]), xytext=(-10, 2), textcoords='offset points')
 
         #draw the first point as per index position
         ax.scatter(pos_A[0], pos_A[1], color="green")
-        ax.text(pos_A[0], pos_A[1], "pos A")
+        ax.annotate("A", xy=(pos_A[0], pos_A[1]), xytext=(-10, 2), textcoords='offset points')
 
         #draw the second point as per index position
         ax.scatter(pos_B[0], pos_B[1], color="blue")
-        ax.text(pos_B[0], pos_B[1], "pos B")
+        ax.annotate("B", xy=(pos_B[0], pos_B[1]), xytext=(-10, 2), textcoords='offset points')
 
         #draw the target point
         ax.scatter(target[0], target[1], color="black")
-        ax.text(target[0], target[1], "target")
+        ax.annotate("target", xy=(target[0], target[1]), xytext=(4, 4), textcoords='offset points')
 
         #draw the line between target and synthesized point so that the intersection can be verified
         ax.axline((s_point[0], s_point[1]), (target[0], target[1]))
@@ -406,12 +407,17 @@ class Interpolator3D:
         #draw intersection
         intersect = pos_A[:2] + (pos_B[:2] - pos_A[:2]) * t
         ax.scatter(intersect[0], intersect[1], color="red")
-        ax.text(intersect[0], intersect[1], "intersection")
+        ax.annotate("δ = " + str(np.round(t,2)), xy=(intersect[0], intersect[1]), xytext=(4, 4), textcoords='offset points')
 
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
+#        ax.set_xlabel('X')
+#        ax.set_ylabel('Y')
 
-        plt.show()
+        if saveas is None:
+            plt.show()
+        else:
+            plt.savefig(saveas, bbox_inches='tight', dpi=utils.DPI)
+        plt.clf()
+
 
     def show_point_influences(self, v, u, show_inset=True, sphere=True, best_arrows=False):
         """
