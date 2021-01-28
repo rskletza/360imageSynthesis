@@ -9,6 +9,7 @@ from skimage.metrics import structural_similarity
 
 import utils
 from preproc import parse_metadata
+from cubemapping import ExtendedCubeMap
 
 IDS = list(string.ascii_uppercase)[:25]
 
@@ -17,11 +18,13 @@ COLORS = ['#f5793a', '#a95aa1','#85c0f9', '#0f2080', '#fad9ad', '#ffffff']
 
 BLENDTYPES = ["baseline", "regular", "flow"]
 METRICTYPES = ["rgb_l1", "edge_l2", "gray_ssim_error ∈ [0,1]"]
+USED_METRICTYPES = ["rgb_l1", "gray_ssim_error ∈ [0,1]"]
+METRICTYPE_NAMES = {"rgb_l1":"L1 error", "edge_l2":"L2 error", "gray_ssim_error ∈ [0,1]":"SSIM error"}
                                 
 class ResultSet:
     '''
     '''
-    def __init__(self, tlpath, blendtype, vps, ids):
+    def __init__(self, tlpath, blendtype, vps, ids, name=None, pos="", dens="", scene=""):
         '''
         tlpath: top level path (directory containing gt folder and results folder)
         blendtype: "flow" or "regular" or "baseline"
@@ -33,6 +36,10 @@ class ResultSet:
         self.respath = tlpath + "results/" + vps + "_vps/"
         self.vps = vps
         self.dims = () 
+        self.name = name
+        self.dens = dens
+        self.scene = scene
+        self.pos = pos
         with open(self.tlpath + '../dims.txt', 'r') as f:
             data = f.readlines()
             dims0 = float(data[0].strip())
@@ -71,32 +78,46 @@ class ResultSet:
 #        print(metrictype)
 #        print("get metrics by type: ", METRICTYPES[mpos], self.vps)
 #        print(metrics)
+
         return metrics
 
     def get_name(self):
-        with open(self.tlpath + 'name.txt', 'r') as f:
-            name = f.readlines()[0].strip()
-        return name + "\n" + BLENDTYPES[self.blendtype] + ", " + self.vps + " vps"
+        if self.name is None:
+            with open(self.tlpath + 'name.txt', 'r') as f:
+                name = f.readlines()[0].strip()
+            return name# + "\n" + self.vps + " vps"
+        else:
+            return self.name
 
     def get_color(self):
         return COLORS[self.blendtype]
 
-    '''
-    def boxplot(self, ax, index, metrictype):
-        if metrictype in METRICTYPES:
-            mpos = METRICTYPES.index(metrictype)
-        else:
-            raise(ValueError(metrictype + " is not a known metrictype"))
+    def get_blendtype(self):
+        return BLENDTYPES[self.blendtype]
 
-        ax.boxplot(self.metrics[])
-    '''
     def get_gt_positions(self):
         gt_pos, _ = parse_metadata(self.tlpath + "gt_metadata.txt")
         return gt_pos * np.array([-1,1,1])
 
     def get_vps(self):
         pos, _ = parse_metadata(self.tlpath + "metadata.txt")
-        return pos
+        return pos * np.array([-1,1,1])
+
+def get_metric_name(metrictype):
+    if metrictype in METRICTYPES:
+        return METRICTYPE_NAMES[metrictype]
+    else:
+        raise(ValueError(metrictype + " is not a known metrictype"))
+
+def get_color_by_blendtype(blendtype):
+    if blendtype not in BLENDTYPES:
+        raise TypeError("no type " + blendtype + " known")
+    return COLORS[BLENDTYPES.index(blendtype)]
+
+def get_blendtype_by_color(color):
+    if color not in COLORS:
+        raise TypeError("color " + color + " not in list of colors")
+    return BLENDTYPES[COLORS.index(color)]
 
 def calc_metrics(out_dir, gt_dir, ids):
     '''
@@ -121,7 +142,7 @@ def calc_metrics(out_dir, gt_dir, ids):
 
         for i, id in enumerate(ids):
             #create a folder with this id name in the eval_dir
-            id_dir = eval_dir + id
+            id_dir = eval_dir# + id
             if not os.path.exists(id_dir):
                 try:
                     os.mkdir(id_dir)
@@ -176,33 +197,61 @@ def calc_metrics(out_dir, gt_dir, ids):
             }
             #matrix contains first all baseline metrics, then all regular metrics then all flow metrics --> 3*3 = 9 values per index
 
-            #TODO is the faulty conversion from cube to latlong actually an issue in error eval because evaluation is done in cubemap anyway? yes because some of the artefacts are transferred elsewhere in the image
-
             for pos, (restype, eval_types) in enumerate(eval_vals.items()):
                 s = imgs["rgb"][restype]
-                gt = imgs["rgb"]["gt"]
-                error, vis = l1_error(gt, s)
+                gt_l1 = imgs["rgb"]["gt"]
+
+                #account for conversion problems
+                dummy = None
+#                if restype == "flow":
+#                    dummy = ExtendedCubeMap(gt_l1, "cube").calc_clipped_cube()
+
+#                if restype == "flow":
+#                    gt_l1 = ExtendedCubeMap(gt_l1, "cube").calc_clipped_cube()
+
+                error, vis = l1_error(gt_l1, s)
+                if dummy is not None:
+                    residual_error, _ = l1_error(gt_l1, dummy)
+                    print("residual l1: ", residual_error)
+                    l1_sum += residual_error
+                    error -= residual_error
                 eval_vals_np[i, pos*3 + 0] = error
+
 #                print('rgb ', error)
 #                utils.cvwrite(vis, id + "_" + paramstring + "_" + restype + '_l1.jpg', eval_dir + id + "/")
-                utils.cvwrite(vis, id + "_" + restype + '_l1.jpg', eval_dir + id + "/")
+                utils.cvwrite(vis, id + "_" + restype + '_l1.jpg', eval_dir)
 
                 s = imgs["edges"][restype]
-                gt = imgs["edges"]["gt"]
-                error, vis = l2_error(gt, s)
+                gt_edges = imgs["edges"]["gt"]
+                error, vis = l2_error(gt_edges, s)
                 eval_vals_np[i, pos*3 + 1] = error
 #                print('edge ', error)
 #                utils.cvwrite(vis, id + "_" + paramstring + "_" + restype + '_l2.jpg', eval_dir + id + "/")
-                utils.cvwrite(vis, id + "_" + restype + '_l2.jpg', eval_dir + id + "/")
+#                utils.cvwrite(vis, id + "_" + restype + '_l2.jpg', eval_dir)
 
                 s = imgs["gray"][restype]
-                gt = imgs["gray"]["gt"]
-                error, vis = ssim_error(gt, s)
+                gt_ssim = imgs["gray"]["gt"]
+#                if restype == "flow":
+#                    gt_ssim = cv2.cvtColor(gt_l1.astype(np.float32), cv2.COLOR_RGB2GRAY)
+                error, vis = ssim_error(gt_ssim, s)
+                if dummy is not None:
+                    dummygray = cv2.cvtColor(dummy.astype(np.float32), cv2.COLOR_RGB2GRAY)
+                    residual_error, _ = ssim_error(gt_ssim, dummygray)
+                    ssim_sum += residual_error
+                    error -= residual_error
+                    print("residual ssim: ", residual_error)
+                    print()
                 eval_vals_np[i, pos*3 + 2] = error
 #        utils.cvwrite(vis, id + "_" + paramstring + "_" + restype + '_ssim.jpg', eval_dir + id + "/")
 
         with open(out_dir + '0eval/full_eval.npy', 'wb') as f:
             np.save(f, eval_vals_np)
+
+#        print("l1 error sum: ", l1_sum)
+#        print("l1 average extra error: ", l1_sum/len(ids))
+#        print("number of ids: ", len(ids))
+#        print("ssim error sum: ", ssim_sum)
+#        print("ssim average extra error: ", ssim_sum/len(ids))
 
         #extract order of results by viewpoint and metric
         sortedIDs = {BLENDTYPES[0]: {}, BLENDTYPES[1]: {}, BLENDTYPES[2]: {}}
@@ -211,7 +260,10 @@ def calc_metrics(out_dir, gt_dir, ids):
                 sorted_column = np.argsort(eval_vals_np[:, blendnum*3+metricnum], axis=0)
                 asciiIDs = []
                 for idnum in sorted_column:
-                    asciiIDs.append(string.ascii_uppercase[idnum])
+                    if sorted_column.shape[0] > 25:
+                        asciiIDs.append(str(idnum) + ": " + str(eval_vals_np[:, blendnum*3+metricnum][idnum]))
+                    else:
+                        asciiIDs.append(string.ascii_uppercase[idnum] + ": " + str(eval_vals_np[:, blendnum*3+metricnum][idnum]))
 
                 sortedIDs[BLENDTYPES[blendnum]][METRICTYPES[metricnum]] = asciiIDs
                 with open(out_dir + '0eval/ID_order.json', 'w') as f:
@@ -219,60 +271,11 @@ def calc_metrics(out_dir, gt_dir, ids):
 
         return eval_vals_np
 
-def boxplot(eval_vals, out_type, vps):
-    '''
-    out_type: flow or res
-    vps: min or max
-    '''
-
-def plot_allvps(eval_vals_np, saveas=(None, "")):
-    '''
-    DONT USE, TOO MANY CHANGES
-    eval_vals_np: 
-    saveas: (path without filename, parameter string for filename)
-    '''
-    fig, ax = plt.subplots(1,3, figsize=(25,12))
-    x = np.array(list(range(len(ids))))
-
-    ax[0].plot(x, eval_vals_np[:,0], color=color1, label='baseline', linestyle='--') #baseline rgb
-    ax[0].plot(x, eval_vals_np[:,3], color=color2, label='regular blending', linestyle='-') #reg rgb
-    ax[0].plot(x, eval_vals_np[:,6], color=color3, label='flow-based blending', linestyle='-.') #flow rgb
-    ax[0].set_title('L1 error on RGB images')
-    ax[0].set_xlabel('viewpoint index')
-    ax[0].set_ylabel('error')
-    ax[0].set_xticks(x)
-    ax[0].set_xticklabels(ids)
-
-    ax[1].plot(x, eval_vals_np[:,1], color=color1, linestyle='--') #baseline edge
-    ax[1].plot(x, eval_vals_np[:,4], color=color2, linestyle='-') #reg edge
-    ax[1].plot(x, eval_vals_np[:,7], color=color3, linestyle='-.') #flow edge
-    ax[1].set_title('Inverted SSIM measure on grayscale images (ssim)')
-    ax[1].set_xlabel('viewpoint index')
-    ax[1].set_ylabel('error')
-    ax[1].set_xticks(x)
-    ax[1].set_xticklabels(ids)
-
-    ax[2].plot(x, eval_vals_np[:,2], color=color1, linestyle='--') #baseline gray
-    ax[2].plot(x, eval_vals_np[:,5], color=color2, linestyle='-') #reg gray
-    ax[2].plot(x, eval_vals_np[:,8], color=color3, linestyle='-.') #flow gray
-    ax[2].set_title('L2 error on edges (Laplace filter on smoothed image)')
-    ax[2].set_xlabel('viewpoint index')
-    ax[2].set_ylabel('error')
-    ax[2].set_xticks(x)
-    ax[2].set_xticklabels(ids)
-
-    fig.legend()
-
-    if saveas is not None:
-        plt.savefig(saveas + 'eval_graph_' + paramstring + '.png', bbox_inches='tight')
-    plt.show()
-    plt.clf()
-
 def l1_error(gt, s):
     '''
     gt: ground truth
     s: synthesized image
-    calculates the absolute error pixel-wise of two images in CIELAB color space 
+    calculates the absolute error pixel-wise of two images in RGB color space 
     '''
     if not ( utils.is_cubemap(gt) and utils.is_cubemap(s) ):
         raise TypeError('The input must be in cubemap representation. Pass through prep_image first')
@@ -284,7 +287,8 @@ def l1_error(gt, s):
     #sum up complete error (since the black areas are 0, they have no impact)
     error = np.sum(vis)
     #calculate mean of the faces (not of the whole image, as the black areas would influence the result (because they have 0 error)
-    error /= (vis.shape[0] / 4) * 6
+    facewidth = float(vis.shape[0]) / 4.0
+    error /= (facewidth * facewidth) * 6
     return (error, vis)
 
 def l2_error(gt, s):
@@ -302,7 +306,15 @@ def l2_error(gt, s):
     #sum up complete error (since the black areas are 0, they have no impact)
     error = np.sum(vis)
     #calculate mean of the faces (not of the whole image, as the black areas would influence the result (because they have 0 error)
-    error /= (vis.shape[0] / 4) * 6
+    facewidth = float(vis.shape[0]) / 4.0
+    error /= (facewidth * facewidth) * 6
+    return (error, vis)
+
+def l1_error_regular(gt, s):
+    vis = np.sum(np.abs(gt - s), -1)
+    error = np.sum(vis)
+    #calculate mean
+    error /= vis.shape[0] * vis.shape[1]
     return (error, vis)
 
 def ssim_error(gt, s):
@@ -310,12 +322,12 @@ def ssim_error(gt, s):
     calculates the structural similarity which yields a value between -1 and 1 (1 being identical)
     converts the ssim value to an error value in the interval [0,1], 0 being no error --> identical
     '''
-    if not ( utils.is_cubemap(gt) and utils.is_cubemap(s) ):
-        raise TypeError('The input must be in cubemap representation. Pass through prep_image first')
+#    if not ( utils.is_cubemap(gt) and utils.is_cubemap(s) ):
+#        raise TypeError('The input must be in cubemap representation. Pass through prep_image first')
     if len(gt.shape) > 2:
         mssim, vis = structural_similarity(gt, s, multichannel=True, full=True)
     else:
-        mssim, vis = structural_similarity(gt, s, full=True)
+        mssim, vis = structural_similarity(gt, s, full=True, gaussian_weights=True, sigma=1.5, use_sample_covariance=False)
     error = (-mssim + 1)/2
     return(error, vis)
 

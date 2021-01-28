@@ -23,22 +23,17 @@ if type == "vps":
 elif type == "gt":
     dist = width/6
     docstring = "/gt_metadata.txt"
+#    for x in range(pps):
+#        for y in range(pps):
+#            points[y,x] = np.array([x*dist + dist/2, y*dist + dist/2])
     for x in range(5):
         for y in range(5):
-            points[y,x] = np.array([x*dist + dist, y*dist + dist])
+            points[y,x] = np.array([x*dist + dist, y*dist + dist+0.08])
 
 #center points around 0
 points = points - np.array([width/2, width/2])
 #flatten
 points = points.reshape((points.shape[0] * points.shape[1], points.shape[2]))
-'''
-points = np.array([  [-1, 1], [-1, 0.5], [-1, 0], [-1, -0.5], [-1, -1],
-            [-0.5, 1], [-0.5, 0.5], [-0.5, 0], [-0.5, -0.5], [-0.5, -1],
-            [0, 1], [0, 0.5], [0, 0], [0, -0.5], [0, -1],
-            [0.5, 1], [0.5, 0.5], [0.5, -0], [0.5, -0.5], [0.5, -1],
-            [1, 1], [1, 0.5], [1, 0], [1, -0.5], [1, -1],
-        ]) #gt points
-'''
 
 print("writing " + type + " metadata")
 with open(bpy.path.abspath("//") + docstring, 'w', encoding='utf-8') as f:

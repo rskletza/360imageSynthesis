@@ -257,6 +257,7 @@ class CaptureSet:
                 quadrants[2][i] = np.sqrt(np.sum(np.power(shifted[i], 2), axis=-1))
 
         #just use one of them because we always have a regular grid (instead of checking which of the opposites has smaller distances) TODO future work
+        # TODO also get convex hull instead of just 2. There must be a convex hull.
         if len(quadrants[0]) == 0 or len(quadrants[2]) == 0: #there are no viewpoints in quadrants 0,2
             if len(quadrants[1]) == 0 or len(quadrants[3]) == 0: #there are no viewpoints in opposing quadrants, so just take the two closest
                 distance_vectors = self.positions - point
@@ -413,5 +414,66 @@ class CaptureSet:
         if saveas is None:
             plt.show()
         else:
-            plt.savefig(saveas, bbox_inches='tight')
+            plt.savefig(saveas, bbox_inches='tight', dpi=utils.DPI)
         plt.clf()
+
+    def draw_spoints(self, s_points, ids, indices=None, slabel=True, ilabel=False, sphere=True, saveas=None):
+        fig = plt.figure()
+        ax = plt.axes()
+        ax.set_aspect('equal', 'box')
+
+#        if indices is None:
+#            indices = list(range(len(self.positions)))
+#        viewpoints = self.positions[[tuple(indices)]]
+#        ax.scatter(viewpoints[:,0], viewpoints[:,1], color='blue')
+#        if ilabel:
+#            for i in range(len(indices)):
+##                ax.text(viewpoints[i,0], viewpoints[i,1], indices[i])
+#                ax.annotate(indices[i], xy=(viewpoints[i,0], viewpoints[i,1]), xytext=(2, 2), textcoords='offset points')
+#
+#        ax.scatter(s_points[:,0], s_points[:,1], color='orange')
+#        if slabel:
+#            for i in range(len(s_points)):
+#                ax.annotate(ids[i], xy=(s_points[i,0], s_points[i,1]), xytext=(2, 2), textcoords='offset points')
+#
+#        ax.set_axis_off()
+#
+        if sphere:
+            ax.set_xlim((-self.radius, self.radius))
+            ax.set_ylim((-self.radius, self.radius))
+            circle = plt.Circle((0, 0), self.radius, color='0.8', fill=False)
+            ax.add_artist(circle)
+
+        image = utils.load_img(self.location + "../" + "top_gray.jpg")
+
+        gt_pos = s_points * np.array([-1,1,1])
+        if indices is None:
+            indices = list(range(len(self.positions)))
+        vps = self.positions[[tuple(indices)]] * np.array([-1,1,1])
+
+        if image is not None:
+            with open(self.location + '../dims.txt', 'r') as f:
+                data = f.readlines()
+                dims0 = float(data[0].strip())
+                dims1 = float(data[1].strip())
+                dims = (dims0, dims1)
+            ax.imshow(image, extent=(-dims[0]/2, dims[0]/2, -dims[1]/2, dims[1]/2))
+            ax.axis('off')
+
+        ax.scatter(gt_pos[:,0], gt_pos[:,1], color="orange", s=25, edgecolors="black")
+        ax.scatter(vps[:,0], vps[:,1], color='blue', marker = 'x', edgecolors="black")
+        if slabel:
+            for j, p in enumerate(gt_pos):
+                ax.annotate(ids[j], xy=(p[:2]), xytext=(2, 2), textcoords='offset points')
+        if ilabel:
+            for i, pos in enumerate(vps):
+                ax.annotate(indices[i], xy=(pos[:2]), xytext=(2, 2), textcoords='offset points')
+
+        if saveas is None:
+            plt.show()
+        else:
+            plt.savefig(saveas, bbox_inches='tight', dpi=150)#utils.DPI)
+        plt.clf()
+
+
+

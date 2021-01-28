@@ -3,7 +3,7 @@ import numpy as np
 import json
 import random
 import skimage
-from skimage import io
+from skimage import io, transform
 import matplotlib.pyplot as plt
 
 from envmap import EnvironmentMap
@@ -97,6 +97,68 @@ def build_cube(faces):
         cube[2*w:3*w, w:2*w] = faces["bottom"]
         cube[3*w:4*w, w:2*w] = faces["back"]
     return cube
+
+def build_sideways_cube(faces):
+    w = faces["top"].shape[0] #width of a single face
+    if len(faces["top"].shape) is 3:
+        cube = np.ones((w*3, w*4, faces["top"].shape[2]))
+        cube[0:w, w:w*2, :]     = faces["top"]
+        cube[w:2*w, 0:w, :]     = faces["left"]
+        cube[w:2*w, w:2*w, :]   = faces["front"]
+        cube[w:2*w, 2*w:3*w, :] = faces["right"]
+        cube[2*w:3*w, w:2*w, :] = faces["bottom"]
+        cube[w:2*w, 3*w:4*w, :] = transform.rotate(faces["back"], 180)
+    else:
+        cube = np.ones_like((w*4, w*3))
+        cube[0:w, w:w*2]     = faces["top"]
+        cube[w:2*w, 0:w]     = faces["left"]
+        cube[w:2*w, w:2*w]   = faces["front"]
+        cube[w:2*w, 2*w:3*w]    = faces["right"]
+        cube[2*w:3*w, w:2*w] = faces["bottom"]
+        cube[w:2*w, 3*w:4*w] = transform.rotate(faces["back"], 180)
+    return cube
+
+def build_cube_strip(faces):
+    """
+    builds a strip of the cube: left - center - right - back
+    for space-conserving visualization
+    """
+    w = faces["top"].shape[0] #width of a single face
+    if len(faces["top"].shape) is 3:
+        strip = np.zeros((w, w*4, faces["top"].shape[2]))
+        strip[0:w, 0:w, :]     = faces["left"]
+        strip[0:w, w:2*w, :]   = faces["front"]
+        strip[0:w, 2*w:3*w, :] = faces["right"]
+        strip[0:w, 3*w:4*w, :] = transform.rotate(faces["back"], 180)
+    else:
+        strip = np.zeros_like((w, w*4))
+        strip[0:w, 0:w]     = faces["left"]
+        strip[0:w, w:2*w]   = faces["front"]
+        strip[0:w, 2*w:3*w] = faces["right"]
+        strip[0:w, 3*w:4*w] = transform.rotate(faces["back"], 180)
+    return strip
+
+def build_cube_strip_with_bottom(faces):
+    """
+    builds a strip of the cube: left - center - right - back
+    for space-conserving visualization
+    """
+    w = faces["top"].shape[0] #width of a single face
+    if len(faces["top"].shape) is 3:
+        strip = np.ones((w*2, w*4, faces["top"].shape[2]))
+        strip[0:w, 0:w, :]     = faces["left"]
+        strip[0:w, w:2*w, :]   = faces["front"]
+        strip[0:w, 2*w:3*w, :] = faces["right"]
+        strip[0:w, 3*w:4*w, :] = transform.rotate(faces["back"], 180)
+        strip[w:2*w, w:2*w, :] = faces["bottom"]
+    else:
+        strip = np.ones_like((w*2, w*4))
+        strip[0:w, 0:w]     = faces["left"]
+        strip[0:w, w:2*w]   = faces["front"]
+        strip[0:w, 2*w:3*w] = faces["right"]
+        strip[0:w, 3*w:4*w] = transform.rotate(faces["back"], 180)
+        strip[w:2*w, w:2*w] = faces["bottom"]
+    return strip
 
 def build_params(p=0.5, l=5, w=13, i=15, poly_expansion=7, sd=1.5, path=".", store=True):
     params = {
@@ -238,7 +300,10 @@ def load_img(path):
     '''
     loads an image at the specified path in rgb format in the range 0,1 in float32
     '''
-    return (cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)/255).astype(np.float32)
+    img = cv2.imread(path)
+    if img is None:
+        raise FileNotFoundError("image at " + path + " not found")
+    return (cv2.cvtColor(img, cv2.COLOR_BGR2RGB)/255).astype(np.float32)
 
 def latlong2cube(latlong):
     '''
