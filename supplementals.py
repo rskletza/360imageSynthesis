@@ -5,21 +5,6 @@ import matplotlib.pyplot as plt
 import os
 import time
 
-def blender_exr2flow(path):
-    """
-    Adapted from http://www.tobias-weis.de/groundtruth-data-for-computer-vision-with-blender/
-    """
-    exr = cv2.imread(path, cv2.IMREAD_ANYCOLOR|cv2.IMREAD_ANYDEPTH)
-    exr = cv2.cvtColor(exr, cv2.COLOR_BGR2RGB)
-    flow = np.dstack((exr[:,:,0], -exr[:,:,1]))
-#    plt.imshow(exr[:,:,0])
-#    plt.show()
-#    plt.imshow(exr[:,:,1])
-#    plt.show()
-#    plt.imshow(exr[:,:,2])
-#    plt.show()
-    return flow
-
 def render_of(indices, blenderfile, location):
     '''
     OpticalFlow at 1001 is A-B and OpticalFlow at 1002 is B-A
@@ -57,20 +42,3 @@ def render_of(indices, blenderfile, location):
     flowBA = ofs["OpticalFlow1002"]
 
     return (flowAB, flowBA)
-
-#def build_flowcube(path):
-#    files = sorted(listdir(path + "/back"))
-#    for f in files:
-#        name, extension = os.path.splitext(f)
-#        if extension == ".exr":
-#            print(f)
-#            faces = {}
-#            for face in FACES:
-#                facepath = path + face + "/" + f
-#                print(facepath)
-#                exr = cv2.imread(facepath, cv2.IMREAD_ANYCOLOR|cv2.IMREAD_ANYDEPTH)
-#                exr = cv2.cvtColor(exr, cv2.COLOR_BGR2RGB)
-#                faces[face] = -np.dstack((exr[:,:,0], -exr[:,:,1]))
-#            flow = utils.build_cube(faces)
-#            with open(path + '/' + name + '.npy', 'wb') as f:
-#                    np.save(f, flow)

@@ -11,50 +11,22 @@ import utils
 import preproc, supplementals
 import optical_flow
 #TODO get rid of this dependency
-from cubemapping import ExtendedCubeMap
-
-
-class Capture:
-    """
-    simple object storing the position, rotation and the image data of a capture
-    """
-    def __init__(self, imgpath, pos, rot):
-        self.pos = pos
-        self.rot = rot
-        self.imgpath = imgpath
-#        self.img = cv2.cvtColor(cv2.imread(imgpath), cv2.COLOR_BGR2RGB)
-        self.img = utils.load_img(imgpath)
-
-    def store_image(self, path=None):
-        """
-        stores the image at the imgpath if it does not already exist
-        overwrites if it does
-        """
-        if path is None:
-            path = self.imgpath
-
-        utils.cvwrite(self.img, path)
-        print("storing at " + path)
-
-    def rotate(self, rotation):
-        envmap = EnvironmentMap(self.img, 'latlong')
-        envmap.rotate('DCM', rotation.as_matrix())
-        self.img = envmap.data
+from extendedcubemap import ExtendedCubeMap
 
 class CaptureSet:
     """
-    set with all captures that holds metadata and paths and can retrieve pairs of both based on index
+    Object that holds metadata and paths of all viewpoints and can retrieve pairs of both based on index
     also contains the model of the scene (as a sphere centered around 0,0,0)
     stores positional coordinates in x, y, z order, x/y being the plane parallel to the ground
-    CaptureSet()
     """
     def __init__(self, location, radius=None, in_place=False, blenderfile=None):
         """
-        location target must contain
-            - a folder named images containing the images of the capture set in the same order as the metadata
+        location directory must contain
+            - a directory named images containing the images of the capture set in the same order as the metadata with names from 0.jpg to N.jpg (no leading 0s)
             - a file named metadata.txt containing the metadata (the format of the metadata is described in preproc.parse_metadata)
             - (optional) a file named ofparams.json containing the optical flow parameters (see utils.load_params / utils.build_params)
         in_place: if true, images are normalized in place (i.e. rotated)
+        blenderfile: if the optical flow should be synthesized with Blender, blenderfile is the location of the file to use for this
         """
         self.location = location
         self.names = sorted(listdir(location + "images"))
@@ -109,17 +81,22 @@ class CaptureSet:
         self.set_scene(radius)
 
     def set_scene(self, radius):
-        #TODO why?? center should always be 0,0,0 anyway
+        """
+        Sets the parameters of the scene
+        """
         minima = np.amin(self.positions, axis=0)
         maxima = np.amax(self.positions, axis=0)
         self.center = minima + (maxima-minima) * 0.5
         if radius is not None:
             self.radius = radius
         else:
-            self.radius = self.get_radius()
+            self.radius = self.calc_radius()
         print("radius: ", self.radius)
 
     def get_size(self):
+        """
+        returns the number of captured viewpoints
+        """
         return len(self.positions)
 
     def get_position(self, index):
@@ -152,16 +129,13 @@ class CaptureSet:
         return Capture(name, self.get_position(index), self.get_rotation(index))
 
     def get_captures(self, indices):
+        """
+        gets a set of captures
+        """
         captures = {}
         for i in indices:
             captures[i] = self.get_capture(i)
         return captures
-
-#    def update_captures(self, captures):
-#        for k, v in captures.items():
-#            self.position[int(k)] = v.pos
-#            self.rotation[int(k)] = v.rot
-#            v.store_image()
 
     def store_rotations(self, location=None):
         if location is None:
@@ -177,7 +151,7 @@ class CaptureSet:
 
     def get_flow(self, indices):
         """
-        lazy calculation of optical flow between two viewpoints
+        Lazy calculation of optical flow between two viewpoints
         if flow and inverse flow have already been calculated, they will just be retrieved
         optical flow is stored in cubemap shape
         returns flow and inverse flow
@@ -207,9 +181,9 @@ class CaptureSet:
 
         return (flow, inverse_flow)
 
-    def get_radius(self):
+    def calc_radius(self):
         """
-        gets or calculates the (estimated) radius of the scene
+        calculates the estimated radius of the scene
         at the moment this is a placeholder function that returns a radius that is slightly larger than the furthest point but in the end this should return a more accurate scene radius
         """
         buf = 0.1
@@ -219,7 +193,11 @@ class CaptureSet:
 
     def get_vps_in_radius(self, point, radius, exclude=None):
         '''
-        exclude is a hack for testing
+        Find all the viewpoints within a certain radius around a point
+
+        point: center of radius
+        radius: radius to use
+        exclude: testing: when synthesizing captured viewpoints, exclude a specific captured viewpoint at this index
         '''
         distance_vectors = self.positions - point
         distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
@@ -234,11 +212,21 @@ class CaptureSet:
 
     def get_closest_vps(self, point, n=2, exclude=None):
         '''
+        Find the closest viewpoints surrounding the input point
+
         quadrants are: 0,1,2,3, starting at top right, going clockwise
         n: either 2 or 4
-        exclude is a hack for testing
+        exclude: for testing: when synthesizing captured viewpoints, exclude a specific captured viewpoint at this index
         '''
         shifted = self.positions - point
+
+        #if any of these input points is at the exact location of the point, return it
+        x_zero = np.nonzero(shifted[:,0] == 0)
+        y_zero = np.nonzero(shifted[:,1] == 0)
+        identical_index = np.intersect1d(x_zero, y_zero)
+        if len(identical_index) > 0:
+            return [identical_index[0]]
+
         quadrants = [{}, {}, {}, {}]
         for i in range(shifted.shape[0]):
             if exclude is not None:
@@ -309,27 +297,30 @@ class CaptureSet:
 
         discriminants = np.power(b, 2) - (4 * a * c)
         if np.amin(discriminants) < 0:
-            #TODO specify and throw error
-            print("no intersection found at some point")
-            return
+            sys.exit("Fatal error: No intersection found for some ray. Check if the synthesized viewpoint is actually within the scene boundaries!")
+
         t1 = (-b + np.sqrt(discriminants)) / (2 * a)
         t2 = (-b - np.sqrt(discriminants)) / (2 * a)
         #select the points with positive lengths
-        lengths = t1 if np.amin(t1) >= 0 else t2 #TODO make selection for each point separately
+        lengths = t1 if np.amin(t1) >= 0 else t2
         intersections = point + (vectors * lengths[:,:,np.newaxis])
         
         return intersections
 
     def draw_scene(self, indices=None, s_points=None, sphere=True, points=None, rays=None, numpoints=200, twoD=False, saveas=None):
         """
-        draws the scene as a set of points and the containing sphere representing the scene
-        indices=None -> all points are drawn
-        indices=[a,b,c] only points at indices a,b,c are drawn
-        s_points -> extra points (i.e. synthesized points) are drawn in a separate color
-        if sphere=False, the sphere representing the scene is omitted
-        points is a list of point arrays that can be drawn (e.g. intersections)
-        this is a member function instead of a free function, so it can ensure correct handling of the axes (may change this later)
-        example usage:
+        Draws the scene as a set of points and the containing sphere representing the scene
+        indices:
+            None -> all points are drawn
+            [a,b,c] only points at indices a,b,c are drawn
+        s_points: extra points (i.e. synthesized points) are drawn in a separate color
+        sphere: if False, the sphere representing the scene is omitted
+        points: a list of point arrays that can be drawn (e.g. intersections)
+        rays: a list of rays to be drawn
+        numpoints: how many points should be displayed
+        twoD: draw the scene in 2D
+
+        Example usage:
         capture_set.draw_scene(indices=[1,4], s_points=np.array([point]), points=[position + rays, intersections, point+targets], sphere=False, rays=[[position+rays, intersections]])
         """
         fig = plt.figure()
@@ -418,33 +409,29 @@ class CaptureSet:
         plt.clf()
 
     def draw_spoints(self, s_points, ids, indices=None, slabel=True, ilabel=False, sphere=True, saveas=None):
+        """
+        Draw a set of points and ids with labels
+        s_points: array of points
+        ids: labels of the points
+        indices: if not None, draw the captured viewpoints at the given indices
+        slabel: if true, label s_points
+        ilabel: if true, label captured viewpoints
+        sphere: if true, draw the proxy sphere
+        """
         fig = plt.figure()
         ax = plt.axes()
         ax.set_aspect('equal', 'box')
 
-#        if indices is None:
-#            indices = list(range(len(self.positions)))
-#        viewpoints = self.positions[[tuple(indices)]]
-#        ax.scatter(viewpoints[:,0], viewpoints[:,1], color='blue')
-#        if ilabel:
-#            for i in range(len(indices)):
-##                ax.text(viewpoints[i,0], viewpoints[i,1], indices[i])
-#                ax.annotate(indices[i], xy=(viewpoints[i,0], viewpoints[i,1]), xytext=(2, 2), textcoords='offset points')
-#
-#        ax.scatter(s_points[:,0], s_points[:,1], color='orange')
-#        if slabel:
-#            for i in range(len(s_points)):
-#                ax.annotate(ids[i], xy=(s_points[i,0], s_points[i,1]), xytext=(2, 2), textcoords='offset points')
-#
-#        ax.set_axis_off()
-#
         if sphere:
             ax.set_xlim((-self.radius, self.radius))
             ax.set_ylim((-self.radius, self.radius))
             circle = plt.Circle((0, 0), self.radius, color='0.8', fill=False)
             ax.add_artist(circle)
 
-        image = utils.load_img(self.location + "../" + "top_gray.jpg")
+        try:
+            image = utils.load_img(self.location + "../" + "top_gray.jpg")
+        except FileNotFoundError:
+            image = None
 
         gt_pos = s_points * np.array([-1,1,1])
         if indices is None:
@@ -475,5 +462,31 @@ class CaptureSet:
             plt.savefig(saveas, bbox_inches='tight', dpi=150)#utils.DPI)
         plt.clf()
 
+
+class Capture:
+    """
+    Simple object storing the position, rotation and the image data of a capture
+    """
+    def __init__(self, imgpath, pos, rot):
+        self.pos = pos
+        self.rot = rot
+        self.imgpath = imgpath
+        self.img = utils.load_img(imgpath)
+
+    def store_image(self, path=None):
+        """
+        stores the image at the imgpath if it does not already exist
+        overwrites if it does
+        """
+        if path is None:
+            path = self.imgpath
+
+        utils.cvwrite(self.img, path)
+        print("storing at " + path)
+
+    def rotate(self, rotation):
+        envmap = EnvironmentMap(self.img, 'latlong')
+        envmap.rotate('DCM', rotation.as_matrix())
+        self.img = envmap.data
 
 

@@ -4,106 +4,24 @@ from scipy.ndimage.interpolation import map_coordinates
 import matplotlib.pyplot as plt
 import matplotlib.colors
 import time
-import skimage.io
 
 from envmap import EnvironmentMap, projections
 
 import utils
 from optical_flow import farneback_of, visualize_flow, visualize_flow_arrows
-from cubemapping import ExtendedCubeMap
+from extendedcubemap import ExtendedCubeMap
 from envmap import EnvironmentMap #TODO create interface for this dependency
-
-types = ["latlong", "cube", "planar"]
-#TODO create Interpolator parent class if appropriate (actually, Interpolator1D should probably be a parent class with its children being Interpolator1DPlanar and Interpolator1DPanoramic
-class Interpolator1D:
-    """
-    creates an interpolator for either planar or panoramic images
-    """
-    def __init__(self, imgA, imgB, type="latlong", flowfunc=farneback_of, param_path=".", flow=None):
-        """
-        Initializes the interpolator with ExtendedCubeMaps and calculates the flow between the two images.
-
-        imgA, imgB: the viewpoints (as RGB images) used in the interpolation
-        type: one of [latlong | cube | planar]
-        flowfunc: the flow function to be used (at the moment, only farneback_of is implemented)
-        flow, invert_flow: flow from A to B and from B to A, respectively
-        """
-        self.type = type
-        if type == "planar":
-            self.A = imgA
-            self.B = imgB
-            if flow is None:
-                self.flow = flowfunc(self.A, self.B, param_path)
-                self.inverse_flow = flowfunc(self.B, self.A, param_path)
-            else:
-                self.flow = flow[0]
-                self.inverse_flow = flow[1]
-        else:
-            self.A = ExtendedCubeMap(imgA, type)
-            self.B = ExtendedCubeMap(imgB, type)
-            if flow is None:
-                self.flow = self.A.optical_flow(self.B, flowfunc, param_path)
-                self.inverse_flow = self.B.optical_flow(self.A, flowfunc, param_path)
-            else:
-                self.flow = flow[0]
-                self.inverse_flow = flow[1]
-        self.out = None
-
-    def clear(self):
-        self.out = None
-
-    def interpolate(self, alpha):
-        """
-        Uses the flow vectors to shift and blend the images to synthesize point alpha between viewpoint A and B
-
-        alpha: distance along the vector between A and B
-
-        returns: the blended image
-
-        Note: self.out stores the blended image as an ExtendedCubeMap until the next time interpolate is called
-        """
-        self.clear()
-
-        if self.type == "planar":
-            shifted_A = shift_img(self.get_image(self.A), self.flow, alpha)
-            shifted_B = shift_img(self.get_image(self.B), self.inverse_flow, (1-alpha))
-        else:
-            shifted_A = self.A.apply_facewise(shift_img, self.flow, alpha)
-            shifted_B = self.B.apply_facewise(shift_img, self.inverse_flow, (1-alpha))
-#        utils.cvwrite(shifted_A, "shifted_A_" + str(alpha) + ".jpg")
-#        utils.cvwrite(shifted_B, "shifted_B_" + str(alpha) + ".jpg")
-
-        out = (1 - alpha) * shifted_A + alpha * shifted_B
-
-        if self.type is "planar":
-            self.out = out
-        else:
-            self.out = ExtendedCubeMap(out, "Xcube", fov=self.A.fov, w_original=self.A.w_original)
-            out = self.out.calc_clipped_cube()
-        return out
-
-    def trivial_interpolation(self, alpha):
-        return (1 - alpha) * self.get_image(self.A) + alpha * self.get_image(self.B)
-
-    def get_image(self, A):
-        """
-        hack to be able to differentiate between ExtendedCubeMaps and planar images
-        this should become obsolete once there is a distinct class for the two cases
-        """
-        if self.type is "planar":
-            return A
-        else:
-            return  A.get_Xcube()
-
-    def get_flow_visualization(self):
-        """
-        returns the color wheel and arrow visualization of the flow and the inverse flow
-        """
-        return (visualize_flow(self.flow), visualize_flow(self.inverse_flow), visualize_flow_arrows(self.get_image(self.A), self.flow, 64), visualize_flow_arrows(self.get_image(self.B), self.inverse_flow, 64))
-
         
-class Interpolator3D:
+class Synthesizer2DoF:
+    """
+    Creates a 2DoF synthesizer that can be used to synthesize new viewpoints in a scene within the convex hull of captured viewpoints. 
+    """
     def __init__(self, capture_set):
+        """
+        Initializes all the instance variables required throughout the synthesis process 
+
+        capture_set: An instance of the class CaptureSet, containing the image paths and, locations and rotations of the captured viewoints
+        """
         self.dev_angles = None
         self.interpolation_distances = None
         self.distances = None
@@ -118,6 +36,9 @@ class Interpolator3D:
         self.reg_blend = None
 
     def clear(self):
+        """
+        Clears all the instance variables before a new synthesis pass
+        """
         self.dev_angles = None
         self.interpolation_distances = None
         self.distances = None
@@ -127,24 +48,48 @@ class Interpolator3D:
         self.flow_blend = None
         self.reg_blend = None
 
-    def interpolate(self, indices, point, knn=1, flow=False, blend=True):
+    def synthesize(self, indices, point, flow=False, knn=2, flow_precision=2, visualize=(False, "out", utils.OUT)):
         """
-        Synthesizes a point from the specified viewpoints
+        Synthesizes a point from the specified viewpoints using either flow-based blending or regular blending, saves the output images in latlong and cubemap format in utils.OUT if not otherwise specified.
 
-        indices: viewpoints of the capture set to use
-        point: point to be synthesized
-        knn: the k nearest neighbors (based on deviation angle) to be used for blending the image
-        blend: if False, images aren't blended (which can be done later)
+        indices: viewpoints of the capture set to use, has to be a valid index from the CaptureSet
+        point: point to be synthesized, given in format: [x,y,0]
+        flow: if True, use flow-based blending, else use regular blending
+        knn: if using regular blending, the k nearest neighbors (based on deviation angle) to be used
+        visualize: (0,1,2)
+            0: if True, saves the associated data visualizations
+            1: id/name to identify the synthesized viewpoint
+            2: path for saving the images
+
         returns: the synthesized image of the desired viewpoint
-
-        Note: This function stores information in the class such as scene intersection points and deviation angles so that they can be visualized later on. This information is reset at each new interpolation
-
         """
         start = time.time()
-        #reset and fill the interpolation information for later use
-        self.clear()
         print("synthesizing ", point)
         print("using ", indices, " for synthesis")
+
+        self.prepare_synthesis(indices, point)
+
+        if flow:
+            out = self.flow_blend_image(flow_precision)
+        else:
+            out = self.regular_blend_image(knn)
+
+        self.visualize_synthesis(visualize[1], details=visualize[0], type=("flow" if flow else "reg"), path=visualize[2])
+            
+        end = time.time()
+        print("Synthesis stats:\n \telapsed time: {0:4.2f}s\n \tnum viewpoints used: {1:d} ".format((end - start), len(indices)))
+
+        return out
+
+    def prepare_synthesis(self, indices, point):
+        """
+        Calculates the ray-sphere intersections and the deviation angles 
+        which are required for the different blending methods
+
+        Note: This function stores information in the class such as scene intersection points and deviation angles so that they can be visualized later on. This information is reset at each new synthesis operation
+        """
+        #reset and fill the interpolation information for later use
+        self.clear()
         self.indices = indices
         self.point = point
         dimensions = self.capture_set.get_capture(indices[0]).img.shape
@@ -156,7 +101,6 @@ class Interpolator3D:
 
         #calculate the intersections from the new point with the scene
         self.intersections = self.capture_set.calc_ray_intersection(point, targets)
-#        self.capture_set.draw_scene(indices=[], s_points=np.array([point]), points=[point+targets, self.intersections], sphere=True)
 
         #for each input viewpoint, determine and store the difference between the ray angles of the viewpoint and the ray angles of the synthesized point (deviation angles)
         for counter, viewpoint_i in enumerate(indices):
@@ -180,41 +124,28 @@ class Interpolator3D:
             dev_angles = dev_angles * angle_sign
             self.dev_angles[:,:,counter] = dev_angles
 
-#            self.visualize_data(np.rad2deg(rel_dev_angles), saveas=utils.OUT+'dev_angles_relative')
-#            cube = EnvironmentMap(np.dstack((np.rad2deg(xy_dev_angles), np.zeros_like(rel_dev_angles), np.zeros_like(rel_dev_angles))), 'latlong').convertTo('cube').data
-#            self.visualize_data(cube[:,:,0])
-
-#            self.capture_set.draw_scene(indices=[viewpoint_i], s_points=np.array([point]), points=[position + rays, self.intersections, point+targets], sphere=True, rays=[[position+rays, self.intersections]])
-
             #get the uv coordinates that correspond to the rays
             u,v = projections.world2latlong(rays[:,:,0], rays[:,:,2], rays[:,:,1])#switch y and z because EnvironmentMap has a different representation
             self.uvs[viewpoint_i] = np.dstack((u,v))
 
-        if blend:
-            self.blend_image(knn)
-            if flow:
-                self.flow_blend_image()
-        end = time.time()
-        print("Interpolation stats:\n \telapsed time: {0:4.2f}s\n \timage format: {1:d}x{2:d}\n \tnum viewpoints used: {3:d} ".format((end - start), dimensions[0], dimensions[1], len(indices)))
-        return self.reg_blend
-
-    def blend_image(self, knn):
+    def regular_blend_image(self, knn):
         """
+        "Regular blending"
         Blends the reprojected images of the k nearest neighbors according to a weighting scheme based on the deviation angles for each pixel
         knn: number of neighbors to incorporate in the result image
-        returns: the blended image
+
+        returns: the synthesized image
 
         Note: This function uses information stored by the interpolation function and also adds information
         """
         #get the knn first indices and angles of the sorted deviation angles (these indices are in [0,cap_set.get_size()] and are not the actual viewpoint indices)
         best_indices = np.argsort(np.abs(self.dev_angles), axis=-1)[:,:,:knn]
         self.best_indices_reg = best_indices
-        dev_angles = np.sort(np.abs(self.dev_angles), axis=-1)[:,:,:knn] #TODO combine argsort and sort? or get values by index
+        dev_angles = np.sort(np.abs(self.dev_angles), axis=-1)[:,:,:knn]
 
         #use these deviation angles to calculate the weights
         #weights matrix is an "image" of weights in order of best-worst angle
         weights = 1 / (1 + np.exp(500*(dev_angles - 0.017)))
-#        weights = 1 / (1 + np.exp(4*(np.rad2deg(dev_angles) - 1)))
 
         #modify the weights so that they sum up to 1
         sums = np.sum(weights, axis=-1)
@@ -236,25 +167,41 @@ class Interpolator3D:
 
             # multiply mask by weight for each index used, then multiply by reprojection
             reproj_imgs[i] = reprojected * mask[:,:,np.newaxis]
-#            utils.cvwrite(reproj_imgs[i], "masked_" + str(self.indices[vp_i]) + ".jpg" )
 
         # sum up all masked & weighted reprojections
         self.reg_blend = np.add.reduce(reproj_imgs, axis=0)
+        return self.reg_blend
 
-    def flow_blend_image(self):
+    def flow_blend_image(self, precision=2):
         """
-        synthesize the image using flow-based blending
-        for each pixel (s_point->target (SP)), get the two closest (by deviation angle) viewpoints A and B on _either_ side of the synthesized point, use 1D interpolation to interpolate the viewpoint v_AB that is at the intersection of SP and AB 
-        v_AB can then be reprojected to the position of the synthesized point
+        "Flow-based blending"
+        Synthesize the image using flow-based blending:
+            For each pixel, gets the two closest (by deviation angle)
+            viewpoints A and B on _either_ side of the synthesized point,
+            uses 1DoF interpolation to interpolate the viewpoint v_AB
+            that is at the intersection of SP and AB 
+            then reprojects v_AB to the position of the synthesized point
+
+        precision: the precision with which to interpolate,
+            i.e., the number of decimal points to round to when determining the interpolation distance.
+            1: [0.0, .. 0.1, 1.0] (11 images),
+            2: [0.00, 0.01, .. , 0.99, 1.00] (101 images),
+            >2 will lead to extremely long computation times and should be avoided
+
+        returns: the synthesized image
+
+        Note: This function uses information stored by the interpolation function and also adds information
         """
-        #get the 2 first indices and angles of the sorted deviation angles (these indices are in [0,cap_set.get_size()] and are not the actual viewpoint indices)
+        #get the deviation angles (which are in [-180,180]) and shift the angles <0 by + 360 degrees so that the largest negative angles (closest to 0) are now closest to 360
         mod_dev = np.copy(self.dev_angles)
         mod_dev[mod_dev < 0] += 2*np.pi
+
+        #sort the modified angles and take the angles closest to 0 and closest to 360, which yields the two viewpoints with the smallest deviation angle _on either side_
         sorted_indices = np.argsort(mod_dev, axis=-1)
         best_indices = np.dstack((sorted_indices[:,:,0], sorted_indices[:,:,-1]))
         self.best_indices_flow = np.copy(best_indices)
 
-        #get 2D vectors between best two indices
+        #get 2D vectors between best two indices for the best indices for each pixel
         unique_indices = np.unique(np.reshape(best_indices, (best_indices.shape[0]*best_indices.shape[1], best_indices.shape[2])), axis=0)
         best_indices = best_indices.reshape((best_indices.shape[0] * best_indices.shape[1], best_indices.shape[2]))
         vectors_A = np.zeros_like(best_indices).astype(np.float64)
@@ -301,12 +248,18 @@ class Interpolator3D:
         AB = vectors_A - vectors_B
 
         self.interpolation_distances = (AS[:,:,0] * SP[:,:,1] - AS[:,:,1] * SP[:,:,0]) / ( AB[:,:,0] * SP[:,:,1] - AB[:,:,1] * SP[:,:,0] )
-#        self.visualize_data(self.interpolation_distances, saveas=utils.OUT + "interpolation_distances.jpg")
 
         #for the points that for some reason are outside of the line segment AB, use the closer viewpoint
         self.interpolation_distances[self.interpolation_distances < 0] = 0
         self.interpolation_distances[self.interpolation_distances > 1] = 1
-        self.interpolation_distances[np.isnan(self.interpolation_distances)] = 0.5 #TODO if the s_point is not between A and B, this is not 0.5
+
+        #if the s_point is exactly on the line between A and B (resulting in t = nan), use t = |AS|\|AB|
+        nan_indices = np.isnan(self.interpolation_distances)
+        AS_len = np.sqrt(np.power(AS[nan_indices][:,0],2)+np.power(AS[nan_indices][:,1],2))
+        AB_len = np.sqrt(np.power(AB[nan_indices][:,0],2)+np.power(AB[nan_indices][:,1],2))
+        self.interpolation_distances[nan_indices] = AS_len / AB_len
+        #in the case that AB_len was zero, there are still nan numbers, so filter again, this time replacing nan with 0
+        self.interpolation_distances[np.isnan(self.interpolation_distances)] = 0
 
         #visualize where the points and lines etc are to debug
         #elevation has no impact, since only points on a plane are used
@@ -316,7 +269,7 @@ class Interpolator3D:
 #            self.show_lr_points(uvs, targets[uvs[0], uvs[1]], self.interpolation_distances[uvs], saveas=utils.OUT + "flow_pos" + str(l) + ".jpg")
 
         #round in order to reduce the number of different sets (reduces accuracy but also compute time)
-        np.round(self.interpolation_distances, 1, self.interpolation_distances)
+        np.round(self.interpolation_distances, precision, self.interpolation_distances)
 
         #find the distinct pairs of best indices & interpolation distances that will be used so that the interpolated, reprojected images for these pixels only have to be calculated once
         sets = np.dstack((self.best_indices_flow, self.interpolation_distances))
@@ -327,7 +280,7 @@ class Interpolator3D:
         for u_pair in unique_pairs:
             #get the actual indices
             pair = (self.indices[u_pair[0].astype(np.uint8)], self.indices[u_pair[1].astype(np.uint8)])
-            print("calculating image at ", u_pair[2], " between ", pair[0], "and", pair[1])
+#            print("calculating image at ", u_pair[2], " between ", pair[0], "and", pair[1])
             dist = u_pair[2]
             #where best_indices and distance is u_pair -> 1 else 0
             mask = (sets == u_pair)
@@ -335,7 +288,7 @@ class Interpolator3D:
 
             #retrieve the flow from the capture set for this image pair
             flow = self.capture_set.get_flow(pair)
-            interpolator = Interpolator1D(self.capture_set.get_capture(pair[0]).img, self.capture_set.get_capture(pair[1]).img, flow=flow)
+            interpolator = Interpolator1DoF(self.capture_set.get_capture(pair[0]).img, self.capture_set.get_capture(pair[1]).img, flow=flow)
             shifted_cube = interpolator.interpolate(dist)
             shifted_latlong = EnvironmentMap(shifted_cube, "cube").convertTo("latlong").data
             positions = self.capture_set.get_positions(pair)
@@ -347,20 +300,28 @@ class Interpolator3D:
             rays = calc_uvector_from_angle(theta, phi, self.capture_set.radius)
             u,v = projections.world2latlong(rays[:,:,0], rays[:,:,2], rays[:,:,1])#switch y and z because EnvironmentMap has a different representation
             image += mask[:,:,np.newaxis] * self.reproject(shifted_latlong, np.dstack((u,v)))
-        self.flow_blend = image
+        self.flow_blend = image #store for later visualization
+        return self.flow_blend
 
     def reproject(self, image, uvs):
         """
-        reprojects an image using the EnvironmentMap.interpolate function
+        Reprojects an image using the EnvironmentMap.interpolate function
+        
+        image: the image to reproject in latlong format
+        uvs: the uv coordinates to use for reprojection
+
+        returns the reprojected image with the same dimensions as the input image
         """
         envmap = EnvironmentMap(image, "latlong")
         u, v = np.split(uvs, 2, axis=2)
         envmap.interpolate(u,v)
         return envmap.data
 
-    def trivial_interpolation(self):
+    def trivial_synthesis(self):
         '''
-        nearest neighbor
+        Find the nearest neighbor according to euclidean distance
+
+        returns: image of the nn viewpoint
         '''
         distance_vectors = self.capture_set.get_positions(self.indices) - self.point
         distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
@@ -370,6 +331,18 @@ class Interpolator3D:
 ######################### visualization functions #########################
 
     def show_lr_points(self, uvs, target, t, saveas=None):
+        """
+        Draws the choice of viewpoints A and B for 1DoF interpolation for a pixel at position uv, designed to be used during the calculation of the interpolation distances in flow_blend_image()
+
+        uv: pixel coordinates
+        target: is defined as the intersection points of the approximated ray with the proxy sphere
+        t: calculated interpolation distance
+        saveas: if None, image is displayed, else location to store image
+
+        Usage example:
+            uvs = (10,10)
+            self.show_lr_points(, targets[uvs[0], uvs[1]], self.interpolation_distances[uvs], saveas=utils.OUT + "flow_pos" + str(l) + ".jpg")
+        """
         s_point = self.point[:2]
         index_A = self.indices[self.best_indices_flow[uvs[0], uvs[1], 0]]
         index_B = self.indices[self.best_indices_flow[uvs[0], uvs[1], 1]]
@@ -409,94 +382,22 @@ class Interpolator3D:
         ax.scatter(intersect[0], intersect[1], color="red")
         ax.annotate("δ = " + str(np.round(t,2)), xy=(intersect[0], intersect[1]), xytext=(4, 4), textcoords='offset points')
 
-#        ax.set_xlabel('X')
-#        ax.set_ylabel('Y')
-
         if saveas is None:
             plt.show()
         else:
             plt.savefig(saveas, bbox_inches='tight', dpi=utils.DPI)
         plt.clf()
 
-
-    def show_point_influences(self, v, u, show_inset=True, sphere=True, best_arrows=False):
-        """
-        Shows the which viewpoints influence the pixel at a certain position (uv) in the last synthesized viewpoint. The pixel at the position uv is translated into world coordinates.
-        v: y position of the pixel
-        u: x position of the pixel
-        show_inset: show the locations and deviation angles of all other viewpoints in the capture set
-        sphere: show the scene model (sphere)
-        best_arrows: draw arrows from the synthesized point (in orange) and the best knn viewpoints (in blue) to the point P (P = world_coordinates(uv))
-        """
-        uv_index = np.array([uv_height, uv_width])
-        s_point = self.point
-        intersection_point = self.intersections[uv_height, uv_width]
-        fig = plt.figure()
-        ax = plt.axes(projection='3d')
-
-        #best indices (actual viewpoint indices) for point uv
-        best_real_indices = [ self.indices[b_i] for b_i in self.best_indices_reg[uv_index[0], uv_index[1]] ]
-
-        #all deviation angles for point uv
-        dev_angles = np.rad2deg(self.dev_angles[uv_index[0], uv_index[1]])
-        index2dev = {}
-        for i in range(len(dev_angles)):
-            index2dev[self.indices[i]] = dev_angles[i]
-
-        #show the scene model (sphere)
-        if sphere:
-            u = np.linspace(0, np.pi, 15)
-            v = np.linspace(0, 2 * np.pi, 15)
-            x = np.outer(np.sin(u), np.sin(v)) * self.capture_set.radius
-            y = np.outer(np.sin(u), np.cos(v)) * self.capture_set.radius
-            z = np.outer(np.cos(u), np.ones_like(v)) * self.capture_set.radius
-            ax.plot_wireframe(x, y, z, color='0.8')
-
-        #show the synthesized point
-        ax.scatter(s_point[0], s_point[1], s_point[2], color='orange')
-        ax.text(s_point[0], s_point[1], s_point[2], 's')
-
-        #show the scene intersection of the uv_index
-        ax.scatter(intersection_point[0], intersection_point[1], intersection_point[2], color='green')
-        ax.text(intersection_point[0], intersection_point[1], intersection_point[2], 'P')
-        #show the ray from the s_point to the intersection
-        i_point = intersection_point - s_point
-        plt.quiver(s_point[0], s_point[1], s_point[2], i_point[0], i_point[1], i_point[2], arrow_length_ratio=0.1, color="orange")
-
-        if best_arrows:
-            starts = self.capture_set.get_positions(best_real_indices)
-            ends = intersection_point - starts
-            plt.quiver(starts[:,0], starts[:,1], starts[:,2], ends[:,0], ends[:,1], ends[:,2], arrow_length_ratio=0.1)
-
-        #show the points used for this uv index
-        for i,best_i in enumerate(best_real_indices):
-            point = self.capture_set.get_position(best_i)
-            ax.scatter(point[0], point[1], point[2], color='lime')
-            ax.text(point[0], point[1], point[2], str(np.round(index2dev[best_i],2)) + "° (" + str(best_i) + ")")
-
-        #show all the other points that are not the best indices
-        if show_inset:
-            inset_diff = np.setdiff1d(self.indices, best_real_indices, assume_unique=True)
-            viewpoints = self.capture_set.get_positions(inset_diff)
-            for i, vp in enumerate(viewpoints):
-                ax.scatter(vp[0], vp[1], vp[2], color='mediumseagreen')
-                #need the deviation angles in order of inset_diff
-                #deviation angle argwhere indices == inset_diff[i]
-                ax.text(vp[0], vp[1], vp[2], str(np.round(index2dev[inset_diff[i]], 2)) + "° (" + str(inset_diff[i]) + ")")
-
-
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-
-        plt.show()
-
     def visualize_data(self, data, saveas=None, maxval=None):
         """
         Saves or shows an image of interpolation data, e.g. deviation angles or interpolation distances
+
+        data: the data, in the shape of an image
+        saveas: if None, image is displayed, else location to store image
+        maxval: set a maximum color value (so that different images can be compared with the same scale)
         """
         if data is None:
-            print("No data passed to Interpolator3D.visualize_data(). Returning.")
+            print("No data passed to Interpolator2DoF.visualize_data(). Returning.")
             return
 
         fig = plt.figure()
@@ -523,7 +424,7 @@ class Interpolator3D:
 
     def get_distances(self):
         """
-        returns an image of the distances of the image areas used for synthesis
+        Returns an image of the distances of the image areas used for synthesis
         """
         distance_vectors = self.capture_set.get_positions(self.indices) - self.point
         distances = np.sqrt(np.sum(np.power(distance_vectors, 2), axis=-1))
@@ -533,7 +434,10 @@ class Interpolator3D:
         return distance_patches
 
     def visualize_indices(self, saveas=None):
-        #get the best two indices for each pixel (1D interpolation is between these)
+        """
+        Returns an image of the indices used for the 1DoF interpolation at each pixel
+        """
+        #get the best two indices for each pixel (1DoF interpolation is between these)
         pairs = np.dstack((self.best_indices_flow[:,:,0], self.best_indices_flow[:,:,1]))
         #sort them so that 0-1 is equal to 1-0 (since it is semantically)
         pairs = np.sort(pairs, axis=-1)
@@ -566,25 +470,122 @@ class Interpolator3D:
             plt.savefig(saveas, bbox_inches='tight', dpi=utils.DPI)
         plt.clf()
 
-    def visualize_interpolation(self, identifier, path=utils.OUT, type=""):
+    def visualize_synthesis(self, identifier, details=True, path=utils.OUT, type=""):
         '''
+        Save all the visualization data from the last synthesis operation
         type: "" | "reg" | "flow", where "" signifies "both"
         '''
+        print(details)
         if type == "reg" or type == "":
             utils.cvwrite(self.reg_blend, str(identifier) + "_out_latlong" +".jpg")
             utils.cvwrite(utils.latlong2cube(self.reg_blend), str(identifier) + "_out_cube" +".jpg")
-            self.visualize_data(self.get_best_deviations(), saveas=utils.OUT +str(identifier) + '_dev_angles_' + type + ".jpg", maxval=14)
-            self.visualize_data(self.get_distances(), maxval=self.capture_set.radius, saveas=utils.OUT + str(identifier) + '_index_distances_' + type + ".jpg")
-            utils.cvwrite(self.trivial_interpolation(), str(identifier) + "_baseline_latlong.jpg")
-            utils.cvwrite(utils.latlong2cube(self.trivial_interpolation()), str(identifier) + "_baseline_cube.jpg")
+            if details:
+                self.visualize_data(self.get_best_deviations(), saveas=utils.OUT +str(identifier) + '_dev_angles_' + type + ".jpg", maxval=14)
+                self.visualize_data(self.get_distances(), maxval=self.capture_set.radius, saveas=utils.OUT + str(identifier) + '_index_distances_' + type + ".jpg")
+                utils.cvwrite(self.trivial_synthesis(), str(identifier) + "_baseline_latlong.jpg")
+                utils.cvwrite(utils.latlong2cube(self.trivial_synthesis()), str(identifier) + "_baseline_cube.jpg")
 
         if type == "flow" or type == "":
-            self.visualize_data(self.interpolation_distances, saveas=utils.OUT + str(identifier) + '_interpolation_distances' + ".jpg")
+            if details:
+                self.visualize_data(self.interpolation_distances, saveas=utils.OUT + str(identifier) + '_interpolation_distances' + ".jpg")
+                self.visualize_indices(utils.OUT + str(identifier) + "_visualized_indices" + ".jpg")
             utils.cvwrite(self.flow_blend, str(identifier) + "_out_flow_latlong.jpg")
             utils.cvwrite(utils.latlong2cube(self.flow_blend), str(identifier) + "_out_flow_cube.jpg")
-            self.visualize_indices(utils.OUT + str(identifier) + "_visualized_indices" + ".jpg")
 
-        self.capture_set.draw_scene(self.indices, s_points=np.array([self.point]), twoD=True, saveas=path + str(identifier) + "_scene_" + type + ".jpg")
+        if details:
+            self.capture_set.draw_spoints(np.array([self.point]), np.array([identifier]), self.indices, ilabel=True, saveas=path + str(identifier) + "_scene.jpg")
+
+
+######################### 1DoF Interpolator class #########################
+
+types = ["latlong", "cube", "planar"]
+class Interpolator1DoF:
+    """
+    creates a 1DoF interpolator for either planar or panoramic images
+    """
+    def __init__(self, imgA, imgB, type="latlong", flowfunc=farneback_of, param_path=".", flow=None):
+        """
+        Initializes the interpolator with ExtendedCubeMaps and calculates the flow between the two images.
+
+        imgA, imgB: the viewpoints (as RGB images) used in the interpolation
+        type: one of [latlong | cube | planar]
+        flowfunc: the flow function to be used (at the moment, only farneback_of is implemented)
+        flow, invert_flow: flow from A to B and from B to A, respectively
+        """
+        self.type = type
+        if type == "planar":
+            self.A = imgA
+            self.B = imgB
+            if flow is None:
+                self.flow = flowfunc((self.A*255).astype(np.uint8), (self.B*255).astype(np.uint8), param_path)
+                self.inverse_flow = flowfunc((self.B*255).astype(np.uint8), (self.A*255).astype(np.uint8), param_path)
+            else:
+                self.flow = flow[0]
+                self.inverse_flow = flow[1]
+        else:
+            self.A = ExtendedCubeMap(imgA, type)
+            self.B = ExtendedCubeMap(imgB, type)
+            if flow is None:
+                self.flow = self.A.optical_flow(self.B, flowfunc, param_path)
+                self.inverse_flow = self.B.optical_flow(self.A, flowfunc, param_path)
+            else:
+                self.flow = flow[0]
+                self.inverse_flow = flow[1]
+        self.out = None
+
+    def clear(self):
+        self.out = None
+
+    def interpolate(self, alpha):
+        """
+        Uses the flow vectors to shift and blend the images to synthesize point alpha between viewpoint A and B
+
+        alpha: distance along the vector between A and B
+
+        returns: the blended image
+
+        Note: self.out stores the blended image as an ExtendedCubeMap until the next time interpolate is called
+        """
+        self.clear()
+
+        if self.type == "planar":
+            shifted_A = shift_img(self.get_image(self.A), self.flow, alpha)
+            shifted_B = shift_img(self.get_image(self.B), self.inverse_flow, (1-alpha))
+        else:
+            shifted_A = self.A.apply_facewise(shift_img, self.flow, alpha)
+            shifted_B = self.B.apply_facewise(shift_img, self.inverse_flow, (1-alpha))
+
+        out = (1 - alpha) * shifted_A + alpha * shifted_B
+
+        if self.type is "planar":
+            self.out = out
+        else:
+            self.out = ExtendedCubeMap(out, "Xcube", fov=self.A.fov, w_original=self.A.w_original)
+            out = self.out.calc_clipped_cube()
+        return out
+
+    def trivial_interpolation(self, alpha):
+        """
+        Use linear blending to combine the images.
+        """
+        return (1 - alpha) * self.get_image(self.A) + alpha * self.get_image(self.B)
+
+    def get_image(self, A):
+        """
+        hack to be able to differentiate between ExtendedCubeMaps and planar images
+        this should become obsolete once there is a distinct class for the two cases
+        """
+        if self.type is "planar":
+            return A
+        else:
+            return  A.get_Xcube()
+
+    def get_flow_visualization(self):
+        """
+        returns the color wheel and arrow visualization of the flow and the inverse flow
+        """
+        return (visualize_flow(self.flow), visualize_flow_arrows(self.get_image(self.A), self.flow, 16))
+
 
 ######################### helper functions #########################
 def shift_img(img, flow, alpha):
@@ -610,6 +611,9 @@ def shift_img(img, flow, alpha):
     return shifted_img
 
 def invert_flow(flow):
+    """
+    Inverts the flow vector field
+    """
     inverted_flow = shift_img(flow, flow, 1)
     return -inverted_flow
 
@@ -637,7 +641,7 @@ def calc_unit_vectors(vectors):
     u_vectors = np.zeros_like(vectors)
     u_vectors[:,:,0] = vectors[:,:,0]/mag
     u_vectors[:,:,1] = vectors[:,:,1]/mag
-    u_vectors[:,:,2] = vectors[:,:,2]/mag #TODO find a cleaner way to do this np.dot?
+    u_vectors[:,:,2] = vectors[:,:,2]/mag
     return u_vectors
 
 def calc_uvector_from_angle(theta, phi, radius=1):
@@ -656,7 +660,11 @@ def calc_uvector_from_angle(theta, phi, radius=1):
 
 def calc_uv_coordinates(imgheight):
     """
+    Gets the uv coordinates of a latlong image
+
     adapted from EnvironmentMap.imageCoordinates at https://github.com/soravux/skylibs/blob/master/envmap/environmentmap.py
+
+    returns the uv coordinates
     """
     cols = np.linspace(0, 1, imgheight*2*2 + 1)
     rows = np.linspace(0, 1, imgheight*2 + 1)

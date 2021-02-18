@@ -32,7 +32,7 @@ class ExtendedCubeMap:
     If it is a regular panorama, it is extended and the extended faces are stored
     If it is an extended cube, it is not extended but stored as is
     """
-    def __init__(self, imgpath, format, fov=90, w_original=None):
+    def __init__(self, imgpath, format, fov=150, w_original=None):
         self.fov = fov
         self.format = format
 
@@ -46,15 +46,11 @@ class ExtendedCubeMap:
             self.extended = utils.split_cube(imgpath)
             self.w_original = w_original
         else:
-            self.extended = self.extend_projection(150)
+            self.extended = self.extend_projection(self.fov)
             self.w_original = self.w
             self.w = self.extended["front"].shape[0]
             if(format is not 'cube'):
                 self._envMap.convertTo('cube')
-
-#        for face in FACES:
-#            utils.cvshow(self.extended[face])
-#        utils.cvshow(self.get_Xcube())
 
     def get_Xcube(self):
 #        return self._envMap.data
@@ -62,49 +58,34 @@ class ExtendedCubeMap:
 
     def calc_clipped_cube(self):
         """
-        calculates the original, non-extended cube
-        TODO: does not return the exact original cube!
+        Calculates the original, non-extended cube
         """
-        if self.format is "Xcube":
-            faces = {}
-            border_width = int(np.floor((self.w - self.w_original)/2))
-#            print(border_width)
+        faces = {}
+        border_width = int(np.floor((self.w - self.w_original)/2))
 
-            xx, yy = np.meshgrid(np.arange(self.w_original), np.arange(self.w_original))
-            clipped_coords = np.array([yy.flatten(), xx.flatten()])
-            depth = self._envMap.data.shape[2]
+        xx, yy = np.meshgrid(np.arange(self.w_original), np.arange(self.w_original))
+        clipped_coords = np.array([yy.flatten(), xx.flatten()])
+        depth = self._envMap.data.shape[2]
 
-            for face in utils.FACES:
-                clipped = self.extended[face][border_width:-border_width, border_width:-border_width, :]
-                faces[face] = np.zeros((self.w_original, self.w_original, depth))
-                for d in range(depth):
-                    faces[face][:,:,d] = np.reshape(map_coordinates(clipped[:,:,d], clipped_coords), (self.w_original, self.w_original))
-#            print(faces["front"].shape)
-            return utils.build_cube(faces)
-
-#            fov = 2*np.rad2deg(np.arctan(self.w_original/self.w))
-#            print("new fov", fov)
-#            faces = self.extend_projection(fov)
-#            return utils.build_cube(faces)
-        else:
-            return self._envMap.data
-
+        for face in utils.FACES:
+            clipped = self.extended[face][border_width:-border_width, border_width:-border_width, :]
+            faces[face] = np.zeros((self.w_original, self.w_original, depth))
+            for d in range(depth):
+                faces[face][:,:,d] = np.reshape(map_coordinates(clipped[:,:,d], clipped_coords), (self.w_original, self.w_original))
+        return utils.build_cube(faces)
 
     def extend_projection(self, fov):
         """
-        calculates a projection for each face of the cube with the given field of view 
+        Calculates a projection for each face of the cube with the given field of view 
+        CAUTION: due to a problem in the skylibs library (in the project function), there is a pixel offset
         """
         # adjacent is 1 (unit sphere) --> opposite is tan(fov)
-        norm_original_width = np.tan(np.deg2rad(self.fov/2))*2
+        norm_original_width = np.tan(np.deg2rad(90/2))*2 #original fov is 90
 #        print("norm original", norm_original_width)
         norm_new_width = np.tan(np.deg2rad(fov/2))*2
 #        print("norm new", norm_new_width)
 
         face_width = int(self.w * (norm_new_width/norm_original_width))
-            
-#        print("old face width", self.w)
-#        print("new face width", face_width)
-#        face_width = int(self.w_original * 1.1) #TODO make dependent on fov
 
         rotations = {   "top": rotation_matrix(0, np.deg2rad(-90), 0),
                         "front": rotation_matrix(0, 0, 0),
@@ -120,19 +101,22 @@ class ExtendedCubeMap:
 
     def optical_flow(self, other, flowfunc, params):
         """
-        applies an optical flow algorithm on each face of the extended cube
+        Applies an optical flow algorithm on each face of the extended cube
+        
         other: other ExtendedCubeMap for flow calculation
         flowfunc: optical flow function returning a 2D array of vectors
         """
         flow = {}
         for face in utils.FACES:
-            flow[face] = flowfunc(self.extended[face].astype(np.uint8), other.extended[face].astype(np.uint8), params)
+            flow[face] = flowfunc((self.extended[face]*255).astype(np.uint8), (other.extended[face]*255).astype(np.uint8), params)
 
         flow_cube = utils.build_cube(flow)
         return flow_cube
 
     def apply_facewise(self, func, operands, params):
         """
+        Applies a function to each face of the ExtendedCubeMap individually
+
         function: function to use on faces
         operands: cubemap-shaped values to use in function (e.g. flowcube for shifting)
         params: further parameters to use in function
@@ -143,12 +127,3 @@ class ExtendedCubeMap:
             res[face] = func(self.extended[face], ops[face], params)
         res = utils.build_cube(res)
         return res
-
-    def optical_flow_face(self, face, other, flowfunc):
-        """
-        for testing purposes
-        applies an optical flow algorithm only on the front face of the extended cube
-        other: other ExtendedCubeMap for flow calculation
-        flowfunc: optical flow function returning a 2D array of vectors
-        """
-        return flowfunc(self.extended[face], other.extended[face])

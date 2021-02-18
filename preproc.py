@@ -1,19 +1,10 @@
-from os import listdir
-import os.path
 import numpy as np
-from scipy.spatial.transform import Rotation
 import cv2
-
-import utils
-
-dirname = "normalized"
-rawname = "raw"
-FACES = ['top', 'front', 'left', 'right', 'bottom', 'back']
-#TODO outsource things like FACES either completely here, or somewhere else, but right now it is defined here and in cubemapping
+from scipy.spatial.transform import Rotation
 
 def parse_metadata(txt):
     """
-    takes a text file as an input containing axis information, and rotation and position metadata and returns the rotations and positions as np arrays
+    Takes a text file as an input containing axis information, and rotation and position metadata and returns the rotations and positions as np arrays
     input must have rotation as quaternion and position for each image on a separate line, in order, separated by commas
     the first two lines must be axis order and axis sign respectively (in case the coordinate system of the capture is different from the one used by CaptureSet, xy is "floor" plane)
     axis_order: positions to shift the axes, eg from x,y,z to x,z,y would be [0,1,-1]
@@ -46,19 +37,11 @@ def parse_metadata(txt):
 
     return np.array(positions), np.array(rotations)
 
-#TODO make center and normalize the same structure
 def center(points):
     """
     takes a point cloud of numpy arrays
     returns same point cloud centered around 0,0,0
     """
-#   normalize
-#    minima = np.amin(points)
-#    points -= minima
-#
-#    maxima = np.amax(points)
-#    points = ( points/maxima ) * suggested_diameter
-
     minima = np.amin(points, axis=0)
     maxima = np.amax(points, axis=0)
     center_point = minima + (maxima-minima) * 0.5
