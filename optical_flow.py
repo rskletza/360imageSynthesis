@@ -1,3 +1,6 @@
+"""
+Contains the optical flow calculation and visualization functions
+"""
 import cv2
 import numpy as np
 

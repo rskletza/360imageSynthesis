@@ -1,3 +1,7 @@
+"""
+Contains functions to preprocess captured input data (used predominantly in CaptureSet)
+"""
+
 import numpy as np
 import cv2
 from scipy.spatial.transform import Rotation

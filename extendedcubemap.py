@@ -1,11 +1,8 @@
-import cv2
-import numpy as np
-from scipy.ndimage.interpolation import map_coordinates
-
-import utils
-from envmap import EnvironmentMap, rotation_matrix
-
 """
+Contains the class ExtendedCubeMap, which is derived from skylib's EnvironmentMap (https://github.com/soravux/skylibs)
+This class extends a regular cube map so that optical flow can be calculated across seams.
+
+Notation:
 sides of the cube:
          ___
         | T |
@@ -24,6 +21,14 @@ R: right
 BO: bottom
 BA: back
 """
+
+import cv2
+import numpy as np
+from scipy.ndimage.interpolation import map_coordinates
+
+import utils
+from envmap import EnvironmentMap, rotation_matrix
+
 
 class ExtendedCubeMap:
     """

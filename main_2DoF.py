@@ -1,3 +1,7 @@
+"""
+This is the "main" file for running 2DoF synthesis within a scene
+"""
+
 import numpy as np
 import string
 
@@ -6,11 +10,13 @@ from preproc import parse_metadata
 import utils, synthesis, optical_flow
 from envmap import EnvironmentMap
 
-#load the capture set
+############## load the capture set ############## 
+
 cap_set = CaptureSet("./testdata/VirtualRoom_CaptureSet/", radius=2.47, in_place=True)
 
 ############## choose the points to synthesize ############## 
 
+'''
 #Option 1: parse the locations of the viewpoints to be synthesized (ground truth data exists for these points)
 s_points, _ = parse_metadata(cap_set.location + 'gt_metadata.txt')
 
@@ -23,7 +29,6 @@ for dist in np.round(np.linspace(0,1,11),2):
     D_pos = A + dist * (B - A)
     s_points.append(D_pos)
 s_points = np.array(s_points)
-'''
 
 #names for the synthesized viewpoints: if there are fewer than 26, use letters, otherwise use numbers
 if len(s_points) <= 26:
@@ -54,5 +59,5 @@ for i in range(s_points.shape[0]):
     synthesizer.synthesize(inset, s_point, flow=False, visualize=(False, ids[i], utils.OUT))
 
     #synthesis with flow-based blending
-    synthesizer.synthesize(inset, s_point, flow=True, flow_precision=1, visualize=(False, ids[i], utils.OUT))
+    synthesizer.synthesize(inset, s_point, flow=True, flow_precision=2, visualize=(False, ids[i], utils.OUT))
 

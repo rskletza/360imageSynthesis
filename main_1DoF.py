@@ -1,3 +1,7 @@
+"""
+This is the "main" file for running 1DoF interpolation between two viewpoints (either planar or panoramic)
+"""
+
 import cv2
 import numpy as np
 

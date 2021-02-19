@@ -1,3 +1,6 @@
+"""
+Contains the classes CaptureSet and Capture, which encapsulate captured scenes so that the data can be easily retrieved for synthesis
+"""
 from os import listdir, path, makedirs
 import sys
 import numpy as np
@@ -8,9 +11,8 @@ from scipy.spatial.transform import Rotation
 from envmap import EnvironmentMap
 
 import utils
-import preproc, supplementals
+import preproc
 import optical_flow
-#TODO get rid of this dependency
 from extendedcubemap import ExtendedCubeMap
 
 class CaptureSet:
@@ -19,20 +21,18 @@ class CaptureSet:
     also contains the model of the scene (as a sphere centered around 0,0,0)
     stores positional coordinates in x, y, z order, x/y being the plane parallel to the ground
     """
-    def __init__(self, location, radius=None, in_place=False, blenderfile=None):
+    def __init__(self, location, radius=None, in_place=False):
         """
         location directory must contain
             - a directory named images containing the images of the capture set in the same order as the metadata with names from 0.jpg to N.jpg (no leading 0s)
             - a file named metadata.txt containing the metadata (the format of the metadata is described in preproc.parse_metadata)
             - (optional) a file named ofparams.json containing the optical flow parameters (see utils.load_params / utils.build_params)
         in_place: if true, images are normalized in place (i.e. rotated)
-        blenderfile: if the optical flow should be synthesized with Blender, blenderfile is the location of the file to use for this
         """
         self.location = location
         self.names = sorted(listdir(location + "images"))
         self.positions = np.zeros((len(self.names), 3))
         self.rotations = np.zeros((len(self.names), 4))
-        self.blenderfile = blenderfile
 
         #try loading previously stored, normalized metadata
         try:
@@ -165,15 +165,11 @@ class CaptureSet:
                 inverse_flow = np.load(f)
 
         except FileNotFoundError:
-            if self.blenderfile is not None:
-                #if location is None, remote calculation is used
-                flow, inverse_flow = supplementals.render_of(indices, self.blenderfile, location=None)
-            else:
-                A = ExtendedCubeMap(self.get_capture(indices[0]).img, "latlong")
-                B = ExtendedCubeMap(self.get_capture(indices[1]).img, "latlong")
+            A = ExtendedCubeMap(self.get_capture(indices[0]).img, "latlong")
+            B = ExtendedCubeMap(self.get_capture(indices[1]).img, "latlong")
 
-                flow = A.optical_flow(B, optical_flow.farneback_of, params=self.location)
-                inverse_flow = B.optical_flow(A, optical_flow.farneback_of, params=self.location)
+            flow = A.optical_flow(B, optical_flow.farneback_of, params=self.location)
+            inverse_flow = B.optical_flow(A, optical_flow.farneback_of, params=self.location)
             with open(path, 'wb') as f:
                 np.save(f, flow.astype(np.float32))
             with open(path_inverse, 'wb') as f:

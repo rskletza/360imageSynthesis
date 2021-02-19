@@ -1,26 +1,40 @@
+"""
+A collection of useful functions
+"""
+
 import cv2
 import numpy as np
 import json
-import random
 import skimage
 from skimage import io, transform
 import matplotlib.pyplot as plt
 
 from envmap import EnvironmentMap
 
-OUT = "/home/rskletza/Documents/Uni/MA/data/out/"
+#modify this to the desired output path
+OUT = "./"
+
 FACES = ['top', 'front', 'left', 'right', 'bottom', 'back']
 DPI = 300
 
 def print_type(array):
+    """
+    Prints the min and max values of an array and its shape
+    """
     print("min: " , np.amin(array), ", max: ", np.amax(array))
     print("shape: ", array.shape, ", type: ", array.dtype)
 
 def cvshow(img, filename=None):
+    """
+    Displays an image
+    """
     io.imshow(img)
     io.show()
 
 def cvwrite(img, filename=None, path=OUT):
+    """
+    Saves an image at the specified location
+    """
     if filename is None:
         fullpath = path
     else:
@@ -30,6 +44,9 @@ def cvwrite(img, filename=None, path=OUT):
     io.imsave(fullpath, img)
 
 def split_cube(cube):
+    """
+    Splits an image in cubemap representation into a python dict with the face names corresponding to the face images. Reverse of build_cube
+    """
     w = int(cube.shape[0]/4)
     faces = {}
     faces["top"]       = cube[0:w, w:w*2, :]
@@ -41,6 +58,9 @@ def split_cube(cube):
     return faces
 
 def build_cube(faces):
+    """
+    Builds an image in cubemap representation from a python dict created using split_cube
+    """
     w = faces["top"].shape[0] #width of a single face
     if len(faces["top"].shape) is 3:
         cube = np.zeros((w*4, w*3, faces["top"].shape[2]))
@@ -61,6 +81,14 @@ def build_cube(faces):
     return cube
 
 def build_sideways_cube(faces):
+    """
+    Builds an image in sideways cubemap representation from a python dict created using split_cube (only for visualization!)
+            top
+             -
+    left - center - right - back
+             -
+            bottom
+    """
     w = faces["top"].shape[0] #width of a single face
     if len(faces["top"].shape) is 3:
         cube = np.ones((w*3, w*4, faces["top"].shape[2]))
@@ -103,6 +131,8 @@ def build_cube_strip(faces):
 def build_cube_strip_with_bottom(faces):
     """
     builds a strip of the cube: left - center - right - back
+                                          -
+                                       bottom
     for space-conserving visualization
     """
     w = faces["top"].shape[0] #width of a single face
@@ -151,30 +181,6 @@ def load_params(path='.'):
     except FileNotFoundError:
         params = build_params(store=False)
     return params;
-
-def get_point_on_plane(A, B, C, dist1=None, dist2=None):
-    """
-    calculates a (random) point D on the plane spanned by A, B, C
-    if dist1 and dist2 are None, a random value is used
-    dist1 determines the distance of point AB along the vector between A and B
-    dist2 determines the distance of point D along the vector between AB and C
-
-    A    
-    |       
-    AB----D---C
-    |
-    |
-    |
-    B
-    """
-    random.seed()
-    if dist1 is None:
-        dist1 = random.random()
-    if dist2 is None:
-        dist2 = random.random()
-
-    AB = A + dist1 * (B - A) 
-    return AB + dist2 * (C - AB)
 
 def sample_points(points, numpoints=200):
     """
