@@ -1,6 +1,5 @@
 # 360imageSynthesis
-This is the implementation of the **pixel-based 2-degree-of-freedom synthesis of 360° viewpoints using flow-based interpolation** introduced in my master's thesis of the same name. The thesis can be found at: https://github.com/rskletza/360ImageSynthesisThesis
-
+This is the implementation of the **pixel-based 2-degree-of-freedom synthesis of 360° viewpoints using flow-based interpolation** introduced in my master's thesis of the same name. The thesis can be found at: http://www.nm.ifi.lmu.de/pub/Diplomarbeiten/klet21/
 
 ## Requirements
 Python 3.7
